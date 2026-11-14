@@ -629,6 +629,15 @@ tailwind.config = {
         <div id="ai-import-status" class="hidden text-sm text-center text-slate-500 dark:text-slate-400"></div>
       </div>
 
+      <!-- Check for duplicates already saved (App.aiDedupe) - merges only when clicked -->
+      <div class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm p-6 space-y-3">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div><h3 class="font-bold flex items-center gap-2"><i class="fa-solid fa-clone text-primary-500"></i> Check for duplicates</h3><p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Finds doctors, medications, conditions, allergies, vital readings and Notes &amp; Records that were added more than once.</p></div>
+          <button onclick="App.aiDedupe.renderDupes()" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-sm whitespace-nowrap"><i class="fa-solid fa-magnifying-glass mr-1"></i> Check my records</button>
+        </div>
+        <div id="ai-dupe-results"></div>
+      </div>
+
       <div id="ai-import-review" class="space-y-6"></div>
     </div>
 
@@ -3015,10 +3024,15 @@ Rules:
         //    every extracted detail, and the next-steps tracker. This is the
         //    "nothing left out" copy; it's kept even if individual items
         //    below are discarded instead of added.
-        const record = App.records.buildFromExtraction(parsed, file.name);
-        App.state.records.unshift(record);
+        // Same document uploaded before? Update that record (fill in what's
+        // missing, add anything new) instead of creating a second copy.
+        const built = App.records.buildFromExtraction(parsed, file.name);
+        const sameDoc = App.aiDedupe.findRecord(built);
+        const record = sameDoc ? App.aiDedupe.mergeRecord(sameDoc, built) : built;
+        if(!sameDoc) App.state.records.unshift(record);
         this.lastRecordId = record.id;
-        App.transport.log('create', null, record.title, 'Document record created via AI Import');
+        this.lastRecordWasMerged = !!sameDoc;
+        App.transport.log(sameDoc?'update':'create', null, record.title, sameDoc?'Same document uploaded again - existing record updated via AI Import (no copy made)':'Document record created via AI Import');
         App.data.save().then(ok=>{ if(!ok){ App.ui.toast('Warning: record may not have saved — check your connection and try again.','error'); } });
 
         // 2) Stage structured items for review, with every field auto-filled.
@@ -3057,10 +3071,12 @@ Rules:
           notes: [str(it.notes), str(it.weight)?('Weight: '+str(it.weight)):'', 'From: '+record.title].filter(Boolean).join(' • ')
         }));
 
+        // Drop anything already in your records; mark matches as updates.
+        const skipped = App.aiDedupe.processPending(this.pending);
         const total = Object.keys(this.pending).reduce((a,k)=>a+this.pending[k].length,0);
         if(statusEl) statusEl.classList.add('hidden');
         if(btn) btn.disabled = false;
-        App.ui.toast(`Full record saved to Notes & Records${total?` — ${total} item(s) ready to add below`:''}.`);
+        App.ui.toast(`${sameDoc?'Existing record updated in':'Full record saved to'} Notes & Records${total?` — ${total} item(s) ready to review below`:''}${skipped.length?` — ${skipped.length} already in your records (not added again)`:''}.`);
         this.renderReview();
         App.dashboard.render();
         const reviewEl = document.getElementById('ai-import-review');
@@ -3119,6 +3135,8 @@ Rules:
       App.ui.toast(left ? `Everything complete was added. ${left} item(s) still need a required field (highlighted).` : 'Everything was added to your records.', left?'info':'success');
     },
     _commit(cat, item){
+      // Already saved? Fill in only what's missing there - never add a copy.
+      if(App.aiDedupe.commitIfExisting(cat, item)) return;
       if(cat==='doctors') this._commitDoctor(item);
       else if(cat==='medications') this._commitMedication(item);
       else if(cat==='conditions') this._commitCondition(item);
@@ -3236,6 +3254,8 @@ Rules:
           <button onclick="App.records.open('${rec.id}')" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm whitespace-nowrap"><i class="fa-solid fa-folder-open mr-1"></i> View Full Record</button>`;
         wrap.appendChild(banner);
       }
+      const skippedHtml = App.aiDedupe.skippedHTML();
+      if(skippedHtml){ const sk=document.createElement('div'); sk.innerHTML=skippedHtml; wrap.appendChild(sk); }
       const totalPending = sections.reduce((a,s)=>a+this.pending[s.key].length,0);
       if(totalPending>1){
         const allBar = document.createElement('div');
@@ -3263,11 +3283,12 @@ Rules:
             return `<div class="${wrapCls}"><label class="text-[10px] font-bold ${missing?'text-rose-500':'text-slate-400'} uppercase">${f.label}</label><input type="${t}" class="${cls}" value="${esc(item[f.name])}" ${t==='text'?`oninput`:`onchange`}="App.aiImport.updateField('${sec.key}',${idx},'${f.name}',this.value)"></div>`;
           }).join('');
           cardsHtml += `<div class="p-4 border-b border-slate-50 dark:border-slate-700 last:border-0">
+              ${App.aiDedupe.badgeHTML(sec.key, item)}
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">${fieldsHtml}</div>
               ${err?`<p class="text-xs font-semibold text-rose-600 mb-2"><i class="fa-solid fa-circle-exclamation mr-1"></i>${esc(err)}</p>`:''}
               <div class="flex gap-2 justify-end">
                 <button onclick="App.aiImport.discardItem('${sec.key}',${idx})" class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-600 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700">Discard</button>
-                <button onclick="App.aiImport.saveItem('${sec.key}',${idx})" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-primary-600 text-white hover:bg-primary-700 ${err?'opacity-50':''}">Add to ${sec.label}</button>
+                <button onclick="App.aiImport.saveItem('${sec.key}',${idx})" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-primary-600 text-white hover:bg-primary-700 ${err?'opacity-50':''}">${item._match?'Update existing':'Add to '+sec.label}</button>
               </div>
             </div>`;
         });
@@ -3278,7 +3299,7 @@ Rules:
           <div>${cardsHtml}</div>`;
         wrap.appendChild(secDiv);
       });
-      if(!totalPending && !rec){
+      if(!totalPending && !rec && !skippedHtml){
         wrap.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="fa-solid fa-inbox text-3xl mb-3"></i><p>Nothing pending review. Upload a document above to get started.</p></div>';
       }
     }
@@ -3694,6 +3715,331 @@ Rules:
        over the per-metric Trend/Status results (combineOverallTrend)
        - never by averaging raw numbers across different vital signs.
      ============================================================ */
+  // ------------------------------------------------------------------
+  // App.aiDedupe - stops AI Import from adding things you already have.
+  // When an extracted doctor, medication, condition, allergy, vital
+  // reading or whole document matches one already saved, it fills in ONLY
+  // the details that are missing there - it never overwrites something you
+  // already have. If the document disagrees with what you have (e.g. a
+  // different dose), nothing is changed and the difference is shown so you
+  // can decide. Also powers "Check for duplicates" for data already saved:
+  // merging only happens when you click, and nothing is thrown away
+  // (differing values are kept in Notes).
+  // ------------------------------------------------------------------
+  aiDedupe: {
+    lastSkipped: [],
+    dupeGroups: null,
+    esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); },
+    norm(s){ return String(s==null?'':s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim(); },
+    blank(v){ if(v===undefined||v===null) return true; const s=String(v).trim(); return s==='' || s.toLowerCase()==='nan' || s==='Unknown'; },
+    digits(v){ return String(v||'').replace(/\D/g,''); },
+    // "10 mg" = "10mg"; phone numbers compared by digits; common frequency wordings treated as equal.
+    FREQ: [[/^(qd|daily|once daily|once a day|every day|1 time a day|one time a day|once per day|1x daily|1x day)$/,'daily'],[/^(bid|twice daily|twice a day|2 times a day|two times a day|every 12 hours|q12h|2x daily)$/,'bid'],[/^(tid|three times daily|three times a day|3 times a day|3x daily|every 8 hours|q8h)$/,'tid'],[/^(qid|four times daily|four times a day|4 times a day|4x daily|every 6 hours|q6h)$/,'qid'],[/^(qhs|hs|at bedtime|nightly|every night|at night|once nightly|daily at bedtime)$/,'qhs'],[/^(qam|every morning|in the morning|daily in the morning|once daily in the morning)$/,'qam'],[/^(prn|as needed)$/,'prn'],[/^(weekly|once weekly|once a week|every week|qweek)$/,'weekly']],
+    freq(v){ const n=this.norm(v).replace(/\bby mouth\b|\bpo\b|\borally\b|\btake\b|\b1 tablet\b|\bone tablet\b/g,' ').replace(/\s+/g,' ').trim(); const hit=this.FREQ.find(([re])=>re.test(n)); return hit?hit[1]:n; },
+    same(a,b,field){ if(field==='frequency') return this.freq(a)===this.freq(b); const n=x=>this.norm(x).replace(/ /g,''); return n(a)===n(b) || (this.digits(a).length>=7 && this.digits(a)===this.digits(b)); },
+
+    // ---------- matching keys ----------
+    CRED: new Set(['dr','doctor','md','do','np','arnp','aprn','pa','pac','rn','lpn','lvn','phd','psyd','lcsw','licsw','lmhc','msw','mhp','facp','facc','faafp','mph','dds','dmd','od','dpm','fnp','bc','mba','ms','ma','jr','sr','ii','iii','mr','mrs','ms','miss']),
+    isCredText(t){ const toks=this.norm(t).split(' ').filter(Boolean); return toks.length>0 && toks.every(x=>this.CRED.has(x)||x==='c'); },
+    docKey(name){
+      let s=String(name||'');
+      const parts=s.split(',').map(x=>x.trim()).filter(Boolean);
+      if(parts.length>=2){
+        const rest=parts.slice(1).filter(t=>!this.isCredText(t));
+        s = rest.length ? rest.join(' ')+' '+parts[0] : parts[0];   // "Smith, John MD" -> "John Smith"
+      }
+      let n=' '+this.norm(s)+' ';
+      n=n.replace(/ pa c /g,' ').replace(/ fnp bc /g,' ').replace(/ np c /g,' ');
+      let toks=n.trim().split(' ').filter(t=>t && !this.CRED.has(t));
+      toks=toks.filter((t,i)=>!(t.length===1 && i>0 && i<toks.length-1)); // drop middle initials
+      if(!toks.length) return '';
+      return toks.length>=2 ? toks[0]+' '+toks[toks.length-1] : toks[0];
+    },
+    MED_DROP: new Set(['mg','mcg','g','gm','ml','l','unit','units','iu','meq','mmol','percent','tab','tabs','tablet','tablets','cap','caps','capsule','capsules','oral','po','solution','soln','suspension','susp','syrup','liquid','injection','inj','injectable','er','xr','xl','sr','dr','ec','cr','la','ir','odt','dc','hcl','hydrochloride','extended','release','delayed','immediate','chewable','chew','dispersible','disintegrating','patch','cream','ointment','gel','lotion','inhaler','inhalation','aerosol','hfa','spray','nasal','ophthalmic','otic','eye','drops','drop','pen','vial','syringe','prefilled','powder','packet','kit','film','coated','by','mouth','daily','once','twice','take','each','every','day','as','needed','prn','with','and','of','in','the','a','an','for','generic','brand','sodium','calcium','magnesium']),
+    medKeys(name){
+      const raw=String(name||'');
+      const keys=new Set();
+      const add=t=>{
+        let n=' '+this.norm(t).replace(/(\d)([a-z])/g,'$1 $2')+' ';
+        let toks=n.trim().split(' ').filter(x=>x && !/^\d+(\.\d+)?$/.test(x) && !this.MED_DROP.has(x));
+        // keep "sodium"/"calcium" etc. only if they are the whole name (e.g. "docusate sodium" -> "docusate")
+        if(!toks.length){ toks=this.norm(t).split(' ').filter(x=>x && !/^\d/.test(x)); }
+        const k=toks.join(' ').trim(); if(k) keys.add(k);
+      };
+      const m=raw.match(/\(([^)]*)\)/g);
+      add(raw.replace(/\([^)]*\)/g,' '));
+      if(m) m.forEach(p=>add(p.replace(/[()]/g,'')));
+      return [...keys];
+    },
+    condKey(name){ return this.norm(name).replace(/\b(unspecified|nos|not otherwise specified|diagnosis of|history of|hx of)\b/g,' ').replace(/\s+/g,' ').trim(); },
+    icdKey(c){ return String(c||'').toUpperCase().replace(/[^A-Z0-9]/g,''); },
+    allergen(name){ return this.norm(String(name||'').split(/\s+[—–-]\s+/)[0]).replace(/\b(allergy|allergic to|allergies|intolerance)\b/g,' ').replace(/\s+/g,' ').trim(); },
+    allergyReaction(name){ const p=String(name||'').split(/\s+[—–-]\s+/); return p.length>1 ? p.slice(1).join(' — ').trim() : ''; },
+
+    // ---------- does this already exist? ----------
+    matches(cat, a, b){
+      if(cat==='doctors'){
+        const ka=this.docKey(a.name), kb=this.docKey(b.name); if(!ka||!kb) return false;
+        if(ka===kb) return true;
+        const la=ka.split(' ').pop(), lb=kb.split(' ').pop();
+        // one side is a last name only ("Smith") - match only on the same last name
+        return (ka.indexOf(' ')<0 || kb.indexOf(' ')<0) && la===lb;
+      }
+      if(cat==='medications'){ const A=this.medKeys(a.name), B=this.medKeys(b.name); return A.some(k=>B.includes(k)); }
+      if(cat==='conditions'){
+        const ia=this.icdKey(a.icd10), ib=this.icdKey(b.icd10);
+        if(ia && ib) return ia===ib;
+        const ka=this.condKey(a.name), kb=this.condKey(b.name); return !!ka && ka===kb;
+      }
+      if(cat==='allergies'){ const ka=this.allergen(a.name), kb=this.allergen(b.name); return !!ka && ka===kb; }
+      if(cat==='vitals'){
+        if(!a.date || a.date!==b.date) return false;
+        const VS=App.vitalStatus;
+        const eq=f=>{ const x=VS.num(a[f]), y=VS.num(b[f]); return x===null||y===null||x===y; };
+        if(VS.num(a.systolic)===null||VS.num(a.systolic)!==VS.num(b.systolic)||VS.num(a.diastolic)!==VS.num(b.diastolic)) return false;
+        if(a.time && b.time && a.time!==b.time) return false;
+        return eq('heartRate') && eq('spo2') && eq('temp');
+      }
+      return false;
+    },
+    STATE: { doctors:'doctors', medications:'medications', conditions:'conditions', allergies:'allergies', vitals:'vitals' },
+    findExisting(cat, item){
+      const list=App.state[this.STATE[cat]]||[];
+      const hits=list.filter(x=>this.matches(cat, item, x));
+      if(cat==='doctors' && hits.length>1){ const exact=hits.filter(x=>this.docKey(x.name)===this.docKey(item.name)); return exact.length===1?exact[0]:null; } // ambiguous last-name-only match: don't guess
+      return hits[0]||null;
+    },
+
+    // ---------- what would be filled / what disagrees ----------
+    // Each rule: [label, field on the saved entry, value from the document, compare?]
+    rules(cat, item, ex){
+      const r=[];
+      if(cat==='doctors'){
+        r.push(['Title','title',item.title,false],['Specialty','specialty',item.specialty,true],['Clinic','clinic',item.clinic,false],['Address','address',item.address,false],['Phone','phone',item.phone,true],['Email','email',item.email,true]);
+      } else if(cat==='medications'){
+        r.push(['Dose','dose',item.dose,true],['Frequency','frequency',item.frequency,true],['Purpose','purpose',item.purpose,false],['Prescribing doctor','doctorName',String(item.doctorName||'').replace(/^dr\.?\s+/i,''),false]);
+        if(/^\d{4}-\d{2}-\d{2}$/.test(item.lastFilledDate||'')) r.push(['Last fill date','refillDate',item.lastFilledDate,false]);
+      } else if(cat==='conditions'){
+        r.push(['ICD-10','icd10',item.icd10,false],['ICD-9','icd9',item.icd9,false],['Priority','priority',item.priority,false]);
+        if(/^\d{4}-\d{2}-\d{2}$/.test(item.date||'')) r.push(['Date noted','date',item.date,false]);
+      } else if(cat==='allergies'){
+        // reaction lives inside the saved name as "Allergen — Reaction"
+      } else if(cat==='vitals'){
+        r.push(['Time','time',item.time,false],['Pulse','heartRate',item.heartRate,false],['SpO2','spo2',item.spo2,false],['Temp','temp',item.temp,false]);
+      }
+      return r;
+    },
+    plan(cat, item, ex){
+      const fills=[], conflicts=[];
+      this.rules(cat,item,ex).forEach(([label,field,val,cmp])=>{
+        if(this.blank(val)) return;
+        if(this.blank(ex[field])) fills.push({label,field,value:String(val).trim()});
+        else if(cmp && !this.same(ex[field],val,field)) conflicts.push({label,mine:ex[field],doc:String(val).trim()});
+      });
+      if(cat==='allergies'){
+        if(!this.blank(item.reaction) && !this.allergyReaction(ex.name)) fills.push({label:'Reaction',field:'__reaction',value:String(item.reaction).trim()});
+      }
+      if(cat==='medications' && /^\d{4}-\d{2}-\d{2}$/.test(item.lastFilledDate||'') && !this.blank(ex.refillDate) && item.lastFilledDate>ex.refillDate){
+        conflicts.push({label:'Newer fill date',mine:ex.refillDate,doc:item.lastFilledDate});
+      }
+      return {fills, conflicts};
+    },
+    labelOf(cat, x){
+      if(cat==='vitals') return `${x.systolic}/${x.diastolic} on ${x.date}`;
+      return x.name || '(no name)';
+    },
+
+    // ---------- review list after an extraction ----------
+    // Removes items already fully in your records, merges repeats inside
+    // the review list itself, and marks items that will update an existing
+    // entry. Also pre-fills blank review fields from the saved entry.
+    processPending(pending){
+      this.lastSkipped=[];
+      // Link a prescriber written differently ("John Smith MD") to the saved doctor ("Dr. John Smith").
+      (pending.medications||[]).forEach(m=>{ if(this.blank(m.doctorName)) return; const k=this.docKey(m.doctorName); const docs=App.state.doctors.filter(d=>this.docKey(d.name)===k); if(docs.length===1) m.doctorName=docs[0].name; });
+      Object.keys(this.STATE).forEach(cat=>{
+        const out=[];
+        (pending[cat]||[]).forEach(item=>{
+          const twin=out.find(o=>this.matches(cat,item,o));
+          if(!twin && this.lastSkipped.some(sk=>sk.cat===cat && sk.item && this.matches(cat,item,sk.item))) return; // repeat of something already skipped
+          if(twin){ Object.keys(item).forEach(k=>{ if(k[0]!=='_' && this.blank(twin[k]) && !this.blank(item[k])) twin[k]=item[k]; }); return; }
+          const ex=this.findExisting(cat,item);
+          if(!ex){ delete item._match; out.push(item); return; }
+          const p=this.plan(cat,item,ex);
+          if(!p.fills.length && !p.conflicts.length){ this.lastSkipped.push({cat, label:this.labelOf(cat,ex), item}); return; }
+          // fill blank review fields from what you already have (so e.g. a
+          // missing Purpose doesn't block the update)
+          this.rules(cat,item,ex).forEach(([,field])=>{
+            const itemField = (cat==='medications'&&field==='refillDate')?'lastFilledDate':field;
+            if(this.blank(item[itemField]) && !this.blank(ex[field])) item[itemField]=ex[field];
+          });
+          item._match={ id:String(ex.id), label:this.labelOf(cat,ex), fills:p.fills.map(f=>f.label), conflicts:p.conflicts };
+          out.push(item);
+        });
+        pending[cat]=out;
+      });
+      return this.lastSkipped;
+    },
+    badgeHTML(cat, item){
+      const m=item._match; if(!m) return '';
+      const e=v=>this.esc(v);
+      let h=`<div class="mb-3 p-3 rounded-xl bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 text-xs text-sky-800 dark:text-sky-300"><p class="font-bold"><i class="fa-solid fa-link mr-1"></i>Already in your records: ${e(m.label)}</p>`;
+      h+= m.fills.length ? `<p class="mt-1">This will only fill in what's missing there: <b>${e(m.fills.join(', '))}</b>. Nothing you already have is changed, and no copy is added.</p>` : `<p class="mt-1">Nothing is missing there — no copy will be added.</p>`;
+      if(m.conflicts.length) h+=`<p class="mt-1 text-amber-700 dark:text-amber-400 font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Different from what you have (not changed — update it yourself if it changed): ${m.conflicts.map(c=>`${e(c.label)}: yours "${e(c.mine)}", document "${e(c.doc)}"`).join('; ')}</p>`;
+      return h+'</div>';
+    },
+    skippedHTML(){
+      if(!this.lastSkipped.length) return '';
+      const names=this.lastSkipped.map(s=>this.esc(s.label));
+      return `<div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300"><p class="font-bold"><i class="fa-solid fa-circle-check text-emerald-500 mr-1"></i>${names.length} item(s) were already in your records with nothing missing, so they were not added again:</p><p class="text-xs mt-1">${names.join(' • ')}</p></div>`;
+    },
+
+    // ---------- saving: update the match instead of adding a copy ----------
+    // Returns true if the item was handled as an update of an existing entry.
+    commitIfExisting(cat, item){
+      const ex=this.findExisting(cat,item);
+      if(!ex) return false;
+      const p=this.plan(cat,item,ex);
+      p.fills.forEach(f=>{
+        if(f.field==='__reaction'){ ex.name = String(ex.name||'').trim()+' — '+f.value; return; }
+        ex[f.field]=f.value;
+        if(cat==='medications' && f.field==='refillDate' && this.blank(ex.nextRefillDate)){ const d=new Date(f.value+'T00:00:00'); d.setDate(d.getDate()+(parseInt(ex.refillCycleDays)||90)); ex.nextRefillDate=App.print.localISO(d); }
+        if(cat==='medications' && f.field==='doctorName' && this.blank(ex.doctorId)){ const doc=App.state.doctors.find(d=>this.docKey(d.name)===this.docKey(f.value)); if(doc){ ex.doctorId=doc.id; ex.doctorName=doc.name; } }
+        if(cat==='vitals' && f.field==='time') ex.time=String(f.value).padStart(5,'0');
+      });
+      if(cat==='medications'){
+        const rec=item.recordId ? App.state.records.find(r=>r.id===item.recordId) : null;
+        const src=rec ? 'Source: '+rec.title+(rec.docDate?' ('+rec.docDate+')':'') : '';
+        const extra=p.conflicts.map(c=>`${c.label} on document: ${c.doc}`).join(' • ');
+        const add=[src, extra].filter(Boolean).filter(t=>!String(ex.notes||'').includes(t));
+        if(add.length) ex.notes=[ex.notes, ...add].filter(Boolean).join(' • ');
+      }
+      if(cat==='vitals'){ App.state.vitals.sort((a,b)=> new Date(b.date+' '+b.time) - new Date(a.date+' '+a.time)); }
+      ex.updatedAt=new Date().toISOString();
+      try{ App.transport.log('update', null, this.labelOf(cat,ex), p.fills.length?('AI Import filled in: '+p.fills.map(f=>f.label).join(', ')):'AI Import: already up to date (no copy added)'); }catch(e){}
+      App.data.save().then(ok=>{ if(!ok){ App.ui.toast('Warning: update may not have saved — check your connection and try again.','error'); } });
+      if(cat==='medications'){ try{ App.data.saveDoctorLinks(); }catch(e){} }
+      this.refresh();
+      return true;
+    },
+    refresh(){ ['doctors','meds','conditions','allergies','vitals','records','dashboard'].forEach(m=>{ try{ App[m].render(); }catch(e){} }); },
+
+    // ---------- Notes & Records: same document uploaded again ----------
+    findRecord(rec){
+      return (App.state.records||[]).find(r=>r!==rec && this.recSame(r,rec)) || null;
+    },
+    rowKey(o){ if(o==null) return ''; if(typeof o!=='object') return this.norm(o); return Object.keys(o).sort().map(k=>k+'='+this.norm(o[k])).join('|'); },
+    // Fills blanks and adds anything new from `src` into `keep`. Never
+    // overwrites, never removes. Next-step statuses you set are kept.
+    mergeRecord(keep, src){
+      ['title','facility','provider','patientName','pages','docTime','docDate','summary','fileName'].forEach(f=>{ if(this.blank(keep[f]) && !this.blank(src[f])) keep[f]=src[f]; });
+      if(!this.blank(src.summary) && !this.blank(keep.summary) && this.norm(src.summary)!==this.norm(keep.summary)){
+        // keep the newer summary visible too (under All Other Information), never replacing yours
+        keep.allOtherInformation = Array.isArray(keep.allOtherInformation) ? keep.allOtherInformation : [];
+        if(!keep.allOtherInformation.some(x=>x && this.norm(x.value)===this.norm(src.summary))) keep.allOtherInformation.push({ label:'Summary from re-upload ('+new Date().toISOString().slice(0,10)+')', value: src.summary });
+      }
+      ['keyFindings','instructions','doctors','medications','conditions','allergies','vitals','labs','procedures','allOtherInformation'].forEach(f=>{
+        const a=Array.isArray(keep[f])?keep[f]:(keep[f]=[]);
+        const seen=new Set(a.map(x=>this.rowKey(x)));
+        (src[f]||[]).forEach(x=>{ const k=this.rowKey(x); if(k && !seen.has(k)){ a.push(x); seen.add(k); } });
+      });
+      keep.nextSteps=keep.nextSteps||[];
+      (src.nextSteps||[]).forEach(s=>{
+        const t=keep.nextSteps.find(x=>this.norm(x.task)===this.norm(s.task) && (!x.dueDate||!s.dueDate||x.dueDate===s.dueDate));
+        if(t){ ['dueDate','dueTime','provider','location','notes','category'].forEach(f=>{ if(this.blank(t[f]) && !this.blank(s[f])) t[f]=s[f]; }); }
+        else keep.nextSteps.push(s);
+      });
+      if(!this.blank(src.myNotes) && this.norm(src.myNotes)!==this.norm(keep.myNotes)) keep.myNotes=[keep.myNotes, src.myNotes].filter(x=>!this.blank(x)).join('\n\n');
+      keep.updatedAt=new Date().toISOString();
+      return keep;
+    },
+
+    // ---------- Check for duplicates already saved ----------
+    CATS: [
+      {cat:'doctors', label:'Doctors', st:'doctors'}, {cat:'medications', label:'Medications', st:'medications'},
+      {cat:'conditions', label:'Conditions', st:'conditions'}, {cat:'allergies', label:'Allergies', st:'allergies'},
+      {cat:'vitals', label:'Vital Readings', st:'vitals'}, {cat:'records', label:'Notes & Records', st:'records'}
+    ],
+    scan(){
+      const groups=[];
+      this.CATS.forEach(({cat,label,st})=>{
+        const list=App.state[st]||[]; const used=new Set();
+        list.forEach((a,i)=>{
+          if(used.has(i)) return;
+          const g=[a];
+          list.forEach((b,j)=>{
+            if(j<=i||used.has(j)) return;
+            const hit = cat==='records' ? this.recSame(a,b) : g.some(x=>this.matches(cat,x,b));
+            if(hit){ g.push(b); used.add(j); }
+          });
+          if(g.length>1){ used.add(i); groups.push({cat,label,items:g}); }
+        });
+      });
+      this.dupeGroups=groups;
+      return groups;
+    },
+    recSame(r,rec){
+      if(r.fileName && rec.fileName && r.fileName===rec.fileName && (r.docDate||'')===(rec.docDate||'') && r.docType===rec.docType) return true;
+      return this.norm(r.title)===this.norm(rec.title) && (r.docDate||'')===(rec.docDate||'') && r.docType===rec.docType && this.norm(r.facility)===this.norm(rec.facility) && !!(r.docDate||r.facility);
+    },
+    filledCount(o){ return Object.keys(o).filter(k=>k!=='id' && !this.blank(o[k]) && !(Array.isArray(o[k])&&!o[k].length)).length; },
+    describe(cat,x){
+      const e=v=>this.esc(v);
+      if(cat==='doctors') return `${(x.title && !String(x.name||'').toLowerCase().startsWith(String(x.title).toLowerCase()))?e(x.title)+' ':''}${e(x.name)}${x.specialty?' — '+e(x.specialty):''}${x.phone?' • '+e(x.phone):''}`;
+      if(cat==='medications') return `${e(x.name)} ${e(x.dose||'')} ${e(x.frequency||'')}${x.purpose?' — '+e(x.purpose):''}`;
+      if(cat==='conditions') return `${e(x.name)}${x.icd10?' ('+e(x.icd10)+')':''}`;
+      if(cat==='allergies') return `${e(x.name)} — ${e(x.severity||'')}`;
+      if(cat==='vitals') return `${e(x.date)} ${e(x.time||'')} • ${e(x.systolic)}/${e(x.diastolic)} • pulse ${e(x.heartRate||'--')} • SpO2 ${e(x.spo2||'--')}`;
+      if(cat==='records') return `${e(x.title)}${x.docDate?' • '+e(x.docDate):''} • ${(x.nextSteps||[]).length} next steps`;
+      return '';
+    },
+    renderDupes(){
+      const box=document.getElementById('ai-dupe-results'); if(!box) return;
+      const groups=this.scan();
+      if(!groups.length){ box.innerHTML='<p class="text-sm font-semibold text-emerald-600"><i class="fa-solid fa-circle-check mr-1"></i>No duplicates found.</p>'; return; }
+      box.innerHTML=`<p class="text-sm font-semibold mb-3">${groups.length} set(s) of duplicates found. Merging keeps one entry, fills its blanks from the copies, keeps any different values in its Notes, then removes the copies. Nothing is merged until you click.</p>`+
+        groups.map((g,gi)=>`<div class="p-4 mb-3 rounded-2xl border border-slate-200 dark:border-slate-700"><p class="text-xs font-bold uppercase text-slate-400 mb-2">${this.esc(g.label)} — ${g.items.length} copies</p><ul class="text-sm space-y-1 mb-3">${g.items.map(x=>`<li>• ${this.describe(g.cat,x)}</li>`).join('')}</ul><button onclick="App.aiDedupe.mergeGroup(${gi})" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-primary-600 text-white">Merge into one</button></div>`).join('');
+    },
+    mergeGroup(gi){
+      const g=this.dupeGroups && this.dupeGroups[gi]; if(!g) return;
+      App.ui.confirmDialog(`Merge ${g.items.length} ${this.esc(g.label)} entries into one? Blanks are filled from the copies and any different values are kept in Notes.`).then(yes=>{
+        if(!yes) return;
+        const st=this.CATS.find(c=>c.cat===g.cat).st;
+        const items=g.items.slice().sort((a,b)=>this.filledCount(b)-this.filledCount(a));
+        const keep=items[0], copies=items.slice(1);
+        copies.forEach(c=>{
+          if(g.cat==='records'){ this.mergeRecord(keep,c); return; }
+          const diffs=[];
+          Object.keys(c).forEach(k=>{
+            if(k==='id'||k==='createdAt'||k==='updatedAt'||k==='notes'||k.startsWith('_')) return;
+            if(typeof c[k]==='object' && c[k]!==null){ if(keep[k]==null) keep[k]=c[k]; return; }
+            if(this.blank(keep[k]) && !this.blank(c[k])) keep[k]=c[k];
+            else if(!this.blank(c[k]) && !this.blank(keep[k]) && !this.same(keep[k],c[k]) && !/^(id|refillStatus|medType|refillCycleDays|nextRefillDate|map|pulsePressure|resolvedDate|lastModified.*)$/.test(k)) diffs.push(`${k}: ${c[k]}`);
+          });
+          const noteBits=[c.notes, diffs.length?('Also recorded as — '+diffs.join(', ')):''].filter(x=>!this.blank(x) && !String(keep.notes||'').includes(x));
+          if(noteBits.length && (g.cat!=='allergies' && g.cat!=='doctors')) keep.notes=[keep.notes,...noteBits].filter(x=>!this.blank(x)).join(' • ');
+          if(g.cat==='doctors') this.remapDoctor(c.id, keep);
+        });
+        const drop=new Set(copies);
+        App.state[st]=App.state[st].filter(x=>!drop.has(x));
+        keep.updatedAt=new Date().toISOString();
+        try{ App.transport.log('update', null, g.cat==='records' ? keep.title : this.labelOf(g.cat,keep), `Merged ${copies.length} duplicate(s)`); }catch(e){}
+        App.data.save().then(ok=>{ App.ui.toast(ok?'Merged.':'Warning: merge may not have saved — check your connection.', ok?'success':'error'); });
+        try{ App.data.saveDoctorLinks(); }catch(e){}
+        this.refresh();
+        this.renderDupes();
+      });
+    },
+    // A removed duplicate doctor's links (medications, conditions, rides) now point to the kept doctor.
+    remapDoctor(oldId, keep){
+      const o=String(oldId);
+      Object.keys(App.state).forEach(k=>{
+        const v=App.state[k]; if(!Array.isArray(v)) return;
+        v.forEach(x=>{ if(!x||typeof x!=='object') return; Object.keys(x).forEach(f=>{ if(/doctorid|providerid/i.test(f) && String(x[f])===o){ x[f]=keep.id; if('doctorName' in x) x.doctorName=keep.name; } }); });
+      });
+    }
+  },
+
   // ------------------------------------------------------------------
   // App.vitalStatus - one shared place for reading-level labels, so the
   // Dashboard, Daily Vitals log and Analytics always agree.

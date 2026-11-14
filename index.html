@@ -3576,6 +3576,8 @@ Rules:
         document.getElementById('dash-temp').innerText = `${last.temp}°F`;
         const bpStatus = last.systolic>=140||last.diastolic>=90 ? 'High' : (last.systolic>=130||last.diastolic>=80 ? 'Elevated' : 'Normal');
         document.getElementById('dash-bp-status').innerText = bpStatus;
+        document.getElementById('dash-spo2-status').innerText = this.getSpo2Status(last.spo2);
+        document.getElementById('dash-temp-status').innerText = this.getTempStatus(last.temp);
         document.getElementById('stat-last-bp').innerText = `${App.formatDate(last.date)} @ ${last.time}`;
       }
       document.getElementById('dash-bmi').innerText = App.state.profile.bmi ? App.state.profile.bmi.toFixed(1) : '--';
@@ -3639,6 +3641,8 @@ Rules:
       App.charts.renderVitalCards('dvc', App.state.vitals.slice(0,8).reverse());
       App.records.renderDashboardCard();
     },
+    getSpo2Status(v){ const n=parseFloat(v); if(v===''||v==null||isNaN(n)) return 'No data'; if(n>=95) return 'Normal'; if(n>=90) return 'Low'; return 'Very Low'; },
+    getTempStatus(v){ const n=parseFloat(v); if(v===''||v==null||isNaN(n)) return 'No data'; if(n>=100.4) return 'Fever'; if(n>=99.5) return 'Elevated'; if(n<95) return 'Low'; return 'Normal'; },
     getBmiCategory(bmi){ if(!bmi) return 'No data'; if(bmi<18.5) return 'Underweight'; if(bmi<25) return 'Normal'; if(bmi<30) return 'Overweight'; return 'Obese'; }
   },
 

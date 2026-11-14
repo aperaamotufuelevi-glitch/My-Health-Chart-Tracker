@@ -350,7 +350,8 @@ tailwind.config = {
   <div class="p-4 lg:p-8 max-w-7xl mx-auto">
     <!-- DASHBOARD -->
     <div id="tab-dashboard" class="tab-content active space-y-6">
-      <div class="flex items-center justify-end no-print">
+      <div class="flex items-center justify-end gap-2 no-print">
+        <button onclick="App.plannerLink.openPlanner()" class="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl font-bold text-sm shadow-sm"><i class="fa-solid fa-calendar-check mr-2 text-primary-600"></i>My Planner &amp; Mail</button>
         <button onclick="App.print.printDashboard()" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-sm shadow-sm"><i class="fa-solid fa-print mr-2"></i>Print Dashboard</button>
       </div>
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -732,6 +733,24 @@ tailwind.config = {
            above: the API key lives ONLY in this browser's own localStorage
            (App.aiImport.configKey), never inside App.state, so it is never
            included in Export All Data, GitHub sync, or any printed report. -->
+      <!-- Link to My Planner & Mail (App.plannerLink) - shares nothing until Connect is pressed -->
+      <div class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
+        <div class="p-6 border-b border-slate-50 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <h3 class="font-bold flex items-center gap-2"><i class="fa-solid fa-calendar-check text-primary-600"></i> My Planner &amp; Mail</h3>
+          <div class="flex gap-2 flex-wrap"><button onclick="App.plannerLink.openPlanner()" class="px-4 py-2 rounded-xl font-bold text-sm border border-slate-200 dark:border-slate-600"><i class="fa-solid fa-up-right-from-square mr-1"></i> Open My Planner &amp; Mail</button><button class="plink-btn" onclick="App.plannerLink.buttonClick()" onmouseenter="if(App.plannerLink.isConnected())App.plannerLink.arm(true)" onmouseleave="App.plannerLink.arm(false)">Connect</button></div>
+        </div>
+        <div class="p-6 space-y-3">
+          <p class="text-xs text-slate-500 dark:text-slate-400">Nothing is shared until you press <b>Connect</b>. Choose what to send to the Planner's Calendar and Do List:</p>
+          <div class="flex flex-wrap gap-4 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" id="plink-send-rides" onchange="App.plannerLink.setSend('rides',this.checked)"> Appointments &amp; ride pickup windows</label>
+            <label class="flex items-center gap-2"><input type="checkbox" id="plink-send-refills" onchange="App.plannerLink.setSend('refills',this.checked)"> Medication refill dates</label>
+            <label class="flex items-center gap-2"><input type="checkbox" id="plink-send-nextSteps" onchange="App.plannerLink.setSend('nextSteps',this.checked)"> Notes &amp; Records next steps</label>
+          </div>
+          <div id="plink-status"></div>
+          <div><label class="text-xs font-bold text-slate-500 uppercase">My Planner &amp; Mail address</label><input id="plink-url" type="text" class="form-input mt-1" onchange="App.plannerLink.saveUrl(this.value)" placeholder="Personal-Planner-Mail.html"><p class="text-[11px] text-slate-400 mt-1">The file name it has on your Cloud Hub. Both tools must be opened from your Cloud Hub address for the link to work.</p></div>
+        </div>
+      </div>
+
       <div class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
         <div class="p-6 border-b border-slate-50 dark:border-slate-700"><h3 class="font-bold flex items-center gap-2"><i class="fa-solid fa-print text-slate-500"></i> Printing</h3></div>
         <div class="p-6 space-y-2">
@@ -1606,6 +1625,7 @@ const App = {
     this.safeStep('githubSync-status', () => this.githubSync.renderStatus());
     this.safeStep('aiImport-status', () => this.aiImport.renderKeyStatus());
     this.safeStep('print-settings', () => this.print.renderPrintSettings());
+    this.safeStep('planner-link', () => this.plannerLink.init());
     this.safeStep('storage-import-prompt', () => {
       if(!PersistentStore.useRemote && safeStorage.__isFallback){
         // Only worth asking if there's nothing already loaded this session -
@@ -2108,7 +2128,7 @@ const App = {
       if(tabId==='logs'){ App.transport.renderLogs(); App.transport.renderStats(); }
       if(tabId==='aiimport') App.aiImport.renderReview();
       if(tabId==='records') App.records.render();
-      if(tabId==='settings'){ App.transport.renderWindowSettings(); try{ App.print.renderPrintSettings(); }catch(e){} }
+      if(tabId==='settings'){ App.transport.renderWindowSettings(); try{ App.print.renderPrintSettings(); }catch(e){} try{ App.plannerLink.render(); }catch(e){} }
       if(tabId==='reports') App.print.initReportDate();
       window.scrollTo(0,0);
     },
@@ -3559,7 +3579,7 @@ Rules:
       return `<div class="space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <button onclick="App.records.back()" class="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm"><i class="fa-solid fa-arrow-left mr-1"></i> All Records</button>
-          <div class="flex gap-2"><button onclick="App.print.printRecord('${r.id}')" class="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm"><i class="fa-solid fa-print mr-1"></i> Print Record</button><button onclick="App.records.delete('${r.id}')" class="px-4 py-2 bg-white dark:bg-slate-800 border border-red-200 dark:border-red-900 text-red-600 rounded-xl font-bold text-sm"><i class="fa-solid fa-trash-can"></i></button></div>
+          <div class="flex gap-2"><button onclick="App.print.printRecord('${r.id}')" class="px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm"><i class="fa-solid fa-print mr-1"></i> Print Record</button><button onclick="App.plannerLink.openEmail('${r.id}')" class="px-4 py-2 bg-primary-600 text-white rounded-xl font-bold text-sm"><i class="fa-solid fa-envelope mr-1"></i> Email</button><button onclick="App.records.delete('${r.id}')" class="px-4 py-2 bg-white dark:bg-slate-800 border border-red-200 dark:border-red-900 text-red-600 rounded-xl font-bold text-sm"><i class="fa-solid fa-trash-can"></i></button></div>
         </div>
         <div class="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm p-6">
           <h1 class="text-2xl font-bold leading-snug">${e(r.title)}</h1>
@@ -3724,6 +3744,264 @@ Rules:
        over the per-metric Trend/Status results (combineOverallTrend)
        - never by averaging raw numbers across different vital signs.
      ============================================================ */
+  // ------------------------------------------------------------------
+  // App.plannerLink - link to "My Planner & Mail".
+  // Nothing is shared until you press Connect. While connected:
+  //  - appointments/rides, refill dates and Notes & Records next steps are
+  //    written to ONE shared link record (health_planner_link_v1) that My
+  //    Planner & Mail shows on its Calendar and Do List. Planner's own data
+  //    is never written to by this tool.
+  //  - ticking a next step done in the Planner marks it done here.
+  //  - Notes & Records entries can be emailed using the Planner's saved
+  //    contacts and EmailJS setup (read only).
+  // Disconnect empties the shared record, so everything sent disappears
+  // from the Planner. Both tools must be opened from the same web address
+  // (your Cloud Hub), which is also what syncs the link to your phone.
+  // ------------------------------------------------------------------
+  plannerLink: {
+    LINK_KEY: 'health_planner_link_v1',
+    ACK_KEY: 'health_planner_link_ack_v1',
+    PLANNER_KEY: 'ppm_data_v1',
+    armed: false, armTimer: null, timer: null,
+    ls(){ try{ return window.localStorage; }catch(e){ return null; } },
+    read(k){ const L=this.ls(); if(!L) return null; try{ return JSON.parse(L.getItem(k)||'null'); }catch(e){ return null; } },
+    write(k,v){ const L=this.ls(); if(!L) return false; try{ L.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+    esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); },
+    cfg(){
+      const s = App.state.settings;
+      if(!s.plannerLink || typeof s.plannerLink!=='object') s.plannerLink = {};
+      const c = s.plannerLink;
+      if(!c.send || typeof c.send!=='object') c.send = { rides:true, refills:true, nextSteps:true };
+      ['rides','refills','nextSteps'].forEach(k=>{ if(typeof c.send[k]!=='boolean') c.send[k]=true; });
+      if(!c.plannerUrl) c.plannerUrl = 'Personal-Planner-Mail.html';
+      return c;
+    },
+    link(){ const o=this.read(this.LINK_KEY); return (o && typeof o==='object') ? o : null; },
+    isConnected(){ const o=this.link(); return !!(o && o.connected===true); },
+    plannerData(){ return this.read(this.PLANNER_KEY); },
+    plannerHref(){ const u=String(this.cfg().plannerUrl||'').trim(); if(/^https?:\/\//i.test(u) || u.startsWith('/')) return u; return u; },
+    openPlanner(){ window.open(this.plannerHref(), '_blank', 'noopener'); },
+    today(){ return App.print.localISO(new Date()); },
+    addDays(iso, n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return App.print.localISO(d); },
+    t12(t){ return t ? App.formatTime(t) : ''; },
+
+    // ---------- exactly what is sent ----------
+    buildItems(){
+      const c=this.cfg(), from=this.addDays(this.today(), -30), events=[], tasks=[];
+      if(c.send.rides){
+        (App.state.rides||[]).forEach(r=>{
+          if(!r.apptDate || r.apptDate<from || r.status==='cancelled') return;
+          const st = r.status==='completed' ? 'Completed' : 'Scheduled';
+          const notes = [ r.checkIn?('Check-in: '+this.t12(r.checkIn)):'', (r.apptStart||r.apptEnd)?('Appointment: '+[this.t12(r.apptStart),this.t12(r.apptEnd)].filter(Boolean).join(' – ')):'',
+            (r.puWindowStart||r.puWindowEnd)?('Pickup window: '+[this.t12(r.puWindowStart),this.t12(r.puWindowEnd)].filter(Boolean).join(' – ')):'',
+            r.puAddr?('Pickup: '+r.puAddr):'', r.doAddr?('Drop-off: '+r.doAddr):'', r.retTime?('Return pickup: '+this.t12(r.retTime)):'', r.notes?('Notes: '+r.notes):'' ].filter(Boolean).join('\n');
+          events.push({ id:'hc_appt_'+r.id, kind:'Appointment', title:'Appointment'+(r.provider?' – '+r.provider:''), type:'Appointment', date:r.apptDate,
+            time:r.apptStart||r.checkIn||'', endTime:r.apptEnd||'', location:r.doAddr||'', notes, status:st });
+          if(r.puWindowStart) events.push({ id:'hc_ride_'+r.id, kind:'Ride pickup', title:'Ride pickup window'+(r.provider?' – '+r.provider:''), type:'Appointment', date:r.apptDate,
+            time:r.puWindowStart, endTime:r.puWindowEnd||'', location:r.puAddr||'', notes, status:st });
+        });
+      }
+      if(c.send.refills){
+        (App.state.medications||[]).forEach(m=>{
+          const due = m.nextRefillDate || '';
+          if(!/^\d{4}-\d{2}-\d{2}$/.test(due) || due<from) return;
+          tasks.push({ id:'hc_refill_'+m.id, kind:'Refill', text:'Refill: '+[m.name,m.dose].filter(Boolean).join(' '), due, time:'', cat:'From MyHealthChart', pri:'Normal',
+            notes:[m.purpose?('For: '+m.purpose):'', m.doctorName?('Prescriber: '+m.doctorName):''].filter(Boolean).join(' • ') });
+        });
+      }
+      if(c.send.nextSteps){
+        (App.state.records||[]).forEach(rec=>{
+          (rec.nextSteps||[]).forEach(s=>{
+            if(s.status!=='pending' && s.status!=='scheduled') return;
+            tasks.push({ id:'hc_step_'+rec.id+'_'+s.id, kind:'Next step', text:s.task, due:s.dueDate||'', time:s.dueTime||'', cat:'From MyHealthChart', pri:'Normal',
+              notes:[s.category, s.provider, s.location, s.notes, 'Record: '+rec.title].filter(Boolean).join(' • '), recordId:rec.id, stepId:s.id });
+          });
+        });
+      }
+      events.sort((a,b)=>(a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+      tasks.sort((a,b)=>((a.due||'9999')+(a.time||'')).localeCompare((b.due||'9999')+(b.time||'')));
+      return { events, tasks };
+    },
+    publish(){
+      if(!this.isConnected()) return;
+      const cur=this.link(), items=this.buildItems(), c=this.cfg();
+      const sig = JSON.stringify([items, c.send]);
+      if(cur && cur._sig===sig) return; // nothing changed - don't write (avoids needless syncing)
+      this.write(this.LINK_KEY, { connected:true, connectedAt:cur.connectedAt||new Date().toISOString(), updatedAt:new Date().toISOString(), from:'MyHealthChart',
+        healthUrl:location.pathname.split('/').pop()||'', sending:Object.assign({}, c.send), events:items.events, tasks:items.tasks, _sig:sig });
+    },
+    // Next steps ticked done in the Planner -> mark them done here.
+    applyAcks(){
+      if(!this.isConnected()) return;
+      const ack=this.read(this.ACK_KEY); if(!ack || !ack.done) return;
+      let changed=0;
+      Object.keys(ack.done).forEach(id=>{
+        if(!id.startsWith('hc_step_')) return;
+        (App.state.records||[]).forEach(rec=>{ if(!id.startsWith('hc_step_'+rec.id+'_')) return; const sid=id.slice(('hc_step_'+rec.id+'_').length);
+          const s=(rec.nextSteps||[]).find(x=>String(x.id)===sid); if(s && (s.status==='pending'||s.status==='scheduled')){ s.status='done'; s.doneAt=new Date().toISOString(); changed++; } });
+      });
+      if(changed){
+        try{ App.transport.log('update', null, 'My Planner & Mail', `${changed} next step(s) marked done from the Planner`); }catch(e){}
+        App.data.save(); try{ App.records.render(); App.dashboard.render(); }catch(e){}
+        App.ui.toast(`${changed} next step(s) were marked done in My Planner & Mail.`);
+      }
+      // keep only acks for items still being sent (refill ticks stay so the Planner keeps showing them done)
+      const live=new Set(this.buildItems().tasks.map(t=>t.id));
+      Object.keys(ack.done).forEach(id=>{ if(!live.has(id)) delete ack.done[id]; });
+      this.write(this.ACK_KEY, ack);
+      this.publish();
+    },
+
+    // ---------- Connect / Connected / Disconnect ----------
+    connect(){
+      const c=this.cfg();
+      this.write(this.LINK_KEY, { connected:true, connectedAt:new Date().toISOString(), updatedAt:new Date().toISOString(), from:'MyHealthChart', sending:Object.assign({},c.send), events:[], tasks:[] });
+      this.publish();
+      try{ App.transport.log('update', null, 'My Planner & Mail', 'Connected'); }catch(e){}
+      App.ui.toast('Connected to My Planner & Mail.');
+      this.render();
+    },
+    disconnect(){
+      this.write(this.LINK_KEY, { connected:false, disconnectedAt:new Date().toISOString(), events:[], tasks:[] });
+      const L=this.ls(); try{ L && L.removeItem(this.ACK_KEY); }catch(e){}
+      try{ App.transport.log('update', null, 'My Planner & Mail', 'Disconnected - everything sent was removed from the Planner'); }catch(e){}
+      App.ui.toast('Disconnected. Nothing is shared with My Planner & Mail now.');
+      this.render();
+    },
+    buttonClick(){
+      if(!this.isConnected()){ this.connect(); return; }
+      if(!this.armed){ this.arm(true); return; }          // first tap on a phone: show "Disconnect"
+      this.armed=false; this.disconnect();               // second tap: disconnect
+    },
+    arm(on){
+      this.armed=!!on; clearTimeout(this.armTimer);
+      if(on) this.armTimer=setTimeout(()=>{ this.armed=false; this.paintButton(); }, 4000);
+      this.paintButton();
+    },
+    paintButton(){
+      document.querySelectorAll('.plink-btn').forEach(b=>{
+        const on=this.isConnected();
+        if(!on){ b.innerHTML='<i class="fa-solid fa-link mr-1"></i> Connect'; b.className='plink-btn px-4 py-2 rounded-xl font-bold text-sm bg-primary-600 text-white'; return; }
+        if(this.armed){ b.innerHTML='<i class="fa-solid fa-link-slash mr-1"></i> Disconnect'; b.className='plink-btn px-4 py-2 rounded-xl font-bold text-sm bg-red-600 text-white'; return; }
+        b.innerHTML='<i class="fa-solid fa-circle-check mr-1"></i> Connected'; b.className='plink-btn px-4 py-2 rounded-xl font-bold text-sm bg-emerald-600 text-white';
+      });
+    },
+    setSend(k, on){ this.cfg().send[k]=!!on; App.data.save(); this.publish(); this.render(); },
+    saveUrl(v){ this.cfg().plannerUrl=String(v||'').trim()||'Personal-Planner-Mail.html'; App.data.save(); },
+    render(){
+      const box=document.getElementById('plink-status'); this.paintButton(); if(!box) return;
+      const c=this.cfg(), on=this.isConnected(), l=this.link();
+      ['rides','refills','nextSteps'].forEach(k=>{ const el=document.getElementById('plink-send-'+k); if(el) el.checked=!!c.send[k]; });
+      const u=document.getElementById('plink-url'); if(u && document.activeElement!==u) u.value=c.plannerUrl;
+      if(!on){ box.innerHTML='<p class="text-sm text-slate-500 dark:text-slate-400"><i class="fa-solid fa-circle-xmark mr-1"></i>Not connected — nothing is being shared with My Planner &amp; Mail.</p>'; return; }
+      const items=this.buildItems(), e=v=>this.esc(v);
+      const rows=[...items.events.map(x=>[x.kind, x.title, App.formatDate(x.date)+(x.time?' • '+this.t12(x.time):'')]), ...items.tasks.map(x=>[x.kind, x.text, x.due?(App.formatDate(x.due)+(x.time?' • '+this.t12(x.time):'')):'No due date'])];
+      box.innerHTML=`<p class="text-sm font-semibold text-emerald-700 dark:text-emerald-400"><i class="fa-solid fa-circle-check mr-1"></i>Connected since ${e(new Date(l.connectedAt).toLocaleString())}. Sending ${rows.length} item(s) to My Planner &amp; Mail:</p>`+
+        (rows.length ? `<div class="overflow-x-auto mt-2"><table class="w-full text-left text-xs"><thead class="text-slate-400 uppercase"><tr><th class="py-1 pr-3">What</th><th class="py-1 pr-3">Item</th><th class="py-1">When</th></tr></thead><tbody>${rows.map(r=>`<tr class="border-t border-slate-100 dark:border-slate-700"><td class="py-1 pr-3 whitespace-nowrap">${e(r[0])}</td><td class="py-1 pr-3">${e(r[1])}</td><td class="py-1 whitespace-nowrap">${e(r[2])}</td></tr>`).join('')}</tbody></table></div>` : '<p class="text-xs text-slate-500 mt-1">Nothing to send right now (no upcoming appointments, refills or open next steps).</p>')+
+        '<p class="text-xs text-slate-500 dark:text-slate-400 mt-2">Not sent: vital readings, conditions, allergies, document summaries, your notes, insurance or ID numbers. Email uses the Planner\'s contacts and email setup only when you press Send.</p>';
+    },
+    init(){
+      this.cfg();
+      this.render();
+      clearInterval(this.timer);
+      this.timer=setInterval(()=>{ if(this.isConnected()){ this.applyAcks(); this.publish(); } this.paintButton(); const st=document.getElementById('plink-status'); if(st && st.offsetParent!==null) this.render(); }, 15000);
+      window.addEventListener('storage', ev=>{ if(ev.key===this.ACK_KEY) this.applyAcks(); if(ev.key===this.LINK_KEY) this.render(); });
+      document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && this.isConnected()){ this.applyAcks(); this.publish(); this.render(); } });
+      if(this.isConnected()){ this.applyAcks(); this.publish(); }
+    },
+
+    // ---------- Email a Notes & Records entry (uses the Planner's contacts + EmailJS) ----------
+    recordHTML(r, includeNotes){
+      const e=v=>this.esc(v), li=a=>a.length?'<ul style="margin:4px 0 10px 18px;padding:0">'+a.map(x=>'<li>'+x+'</li>').join('')+'</ul>':'';
+      const h=t=>`<h3 style="font-size:15px;color:#1e3a8a;margin:14px 0 4px 0;border-bottom:1px solid #dbe3ee;padding-bottom:3px">${t}</h3>`;
+      let out=`<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1c2733">`;
+      out+=`<h2 style="font-size:19px;color:#1e3a8a;margin:0 0 6px 0">${e(r.title)}</h2>`;
+      out+=`<div style="font-size:14px;color:#475569">${[r.docType, r.docDate?App.formatDate(r.docDate):'', r.docTime?this.t12(r.docTime):'', r.provider, r.facility].filter(Boolean).map(e).join(' • ')}</div>`;
+      if(r.summary) out+=h('Summary')+String(r.summary).split(/\n\s*\n/).map(p=>`<p style="margin:0 0 8px 0">${e(p.trim()).replace(/\n/g,'<br>')}</p>`).join('');
+      if((r.keyFindings||[]).length) out+=h('Key Findings')+li(r.keyFindings.map(e));
+      const steps=(r.nextSteps||[]); if(steps.length) out+=h('Next Steps')+li(steps.map(s=>`<b>${e(s.task)}</b>${s.dueDate?' — due '+e(App.formatDate(s.dueDate))+(s.dueTime?' '+e(this.t12(s.dueTime)):''):''} (${e(s.status)})`));
+      if((r.medications||[]).length) out+=h('Medications')+li(r.medications.map(m=>`<b>${e(m.name)}</b> ${e([m.dose,m.frequency].filter(Boolean).join(', '))}${m.purpose?' — '+e(m.purpose):''}`));
+      if((r.conditions||[]).length) out+=h('Diagnoses / Conditions')+li(r.conditions.map(c=>`${e(c.name)}${c.icd10?' ('+e(c.icd10)+')':''}`));
+      if((r.labs||[]).length) out+=h('Lab Results')+li(r.labs.map(l=>`${e(l.test)}: <b>${e((l.result||'')+' '+(l.unit||''))}</b>${l.referenceRange?' (ref '+e(l.referenceRange)+')':''}${l.flag?' — '+e(l.flag):''}`));
+      if((r.instructions||[]).length) out+=h('Instructions')+li(r.instructions.map(e));
+      if(includeNotes && r.myNotes) out+=h('My Notes')+`<p style="white-space:pre-wrap;margin:0">${e(r.myNotes)}</p>`;
+      return out+'</div>';
+    },
+    recordText(r, includeNotes){
+      const L=[r.title, [r.docType, r.docDate, r.provider, r.facility].filter(Boolean).join(' • '), ''];
+      if(r.summary) L.push('SUMMARY', r.summary, '');
+      if((r.keyFindings||[]).length) L.push('KEY FINDINGS', ...r.keyFindings.map(x=>'- '+x), '');
+      if((r.nextSteps||[]).length) L.push('NEXT STEPS', ...r.nextSteps.map(s=>'- '+s.task+(s.dueDate?' (due '+s.dueDate+')':'')), '');
+      if((r.medications||[]).length) L.push('MEDICATIONS', ...r.medications.map(m=>'- '+[m.name,m.dose,m.frequency,m.purpose].filter(Boolean).join(', ')), '');
+      if(includeNotes && r.myNotes) L.push('MY NOTES', r.myNotes);
+      return L.join('\n');
+    },
+    openEmail(recordId){
+      const r=App.records.get(recordId); if(!r) return;
+      if(!this.isConnected()){ App.ui.toast('Connect to My Planner & Mail first (Settings → My Planner & Mail → Connect).','error'); return; }
+      const P=this.plannerData()||{}, S=P.settings||{}, ej=S.ej||{};
+      if(!(ej.service && ej.template && ej.key)){ App.ui.toast('Email is not set up in My Planner & Mail yet (its Settings → Email (EmailJS)).','error'); return; }
+      const e=v=>this.esc(v);
+      const contacts=(P.contacts||[]).filter(c=>c && c.email && /@/.test(c.email)).map(c=>({name:(c.title?c.title+' ':'')+(c.name||[c.first,c.last].filter(Boolean).join(' ')), email:c.email, group:c.group||'Planner contacts'}));
+      const docs=(App.state.doctors||[]).filter(d=>d.email && /@/.test(d.email) && !contacts.some(c=>c.email.toLowerCase()===d.email.toLowerCase())).map(d=>({name:d.name, email:d.email, group:'MyHealthChart doctors'}));
+      const all=[...contacts, ...docs];
+      const groups={}; all.forEach((c,i)=>{ (groups[c.group]=groups[c.group]||[]).push(`<option value="${i}">${e(c.name)} &lt;${e(c.email)}&gt;</option>`); });
+      this._recips=all; this._recordId=recordId;
+      let ov=document.getElementById('plink-email'); if(ov) ov.remove();
+      ov=document.createElement('div'); ov.id='plink-email';
+      ov.style.cssText='position:fixed;inset:0;z-index:130;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+      ov.innerHTML=`<div class="bg-white dark:bg-slate-800 rounded-3xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-3">
+        <div class="flex items-center justify-between"><h3 class="font-bold text-lg"><i class="fa-solid fa-envelope mr-2 text-primary-600"></i>Email this record</h3><button onclick="document.getElementById('plink-email').remove()" class="text-slate-400 text-xl">&times;</button></div>
+        <p class="text-xs text-slate-500">Sent with My Planner &amp; Mail's email setup${S.myName?' as '+e(S.myName):''}.</p>
+        <div><label class="text-xs font-bold text-slate-500 uppercase">To (contacts)</label><select id="plink-to" multiple size="5" class="form-input mt-1">${Object.keys(groups).map(g=>`<optgroup label="${e(g)}">${groups[g].join('')}</optgroup>`).join('')}</select><p class="text-[11px] text-slate-400 mt-1">Hold Ctrl / Cmd to pick more than one.</p></div>
+        <div><label class="text-xs font-bold text-slate-500 uppercase">Other email addresses</label><input id="plink-extra" type="text" class="form-input mt-1" placeholder="name@example.com, another@example.com"></div>
+        <div><label class="text-xs font-bold text-slate-500 uppercase">Subject</label><input id="plink-subject" type="text" class="form-input mt-1" value="${e(r.title)}"></div>
+        <div><label class="text-xs font-bold text-slate-500 uppercase">Your message</label><textarea id="plink-msg" rows="4" class="form-input mt-1"></textarea></div>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="plink-inc" checked> Include the record's details below my message</label>
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="plink-notes"> Also include "My Notes"</label>
+        ${S.signature?'<label class="flex items-center gap-2 text-sm"><input type="checkbox" id="plink-sig" checked> Add my Planner signature</label>':''}
+        <div id="plink-email-msg" class="text-sm"></div>
+        <div class="flex justify-end gap-2"><button onclick="document.getElementById('plink-email').remove()" class="px-4 py-2 rounded-xl font-bold text-sm border border-slate-200 dark:border-slate-600">Cancel</button><button id="plink-send" onclick="App.plannerLink.sendEmail()" class="px-4 py-2 rounded-xl font-bold text-sm bg-primary-600 text-white"><i class="fa-solid fa-paper-plane mr-1"></i> Send</button></div>
+      </div>`;
+      document.body.appendChild(ov);
+    },
+    async sendEmail(){
+      const r=App.records.get(this._recordId); if(!r) return;
+      const P=this.plannerData()||{}, S=P.settings||{}, ej=S.ej||{};
+      const sel=[...document.getElementById('plink-to').selectedOptions].map(o=>this._recips[+o.value]);
+      const extra=String(document.getElementById('plink-extra').value||'').split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean);
+      const bad=extra.filter(x=>!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(x));
+      const msgEl=document.getElementById('plink-email-msg');
+      if(bad.length){ msgEl.innerHTML=`<span class="text-rose-600 font-semibold">Not a valid email address: ${this.esc(bad.join(', '))}</span>`; return; }
+      const to=[...sel, ...extra.map(x=>({name:'', email:x}))].filter((x,i,a)=>a.findIndex(y=>y.email.toLowerCase()===x.email.toLowerCase())===i);
+      if(!to.length){ msgEl.innerHTML='<span class="text-rose-600 font-semibold">Pick a contact or type an email address.</span>'; return; }
+      const subject=document.getElementById('plink-subject').value.trim();
+      let msg=document.getElementById('plink-msg').value;
+      const sigEl=document.getElementById('plink-sig'); if(sigEl && sigEl.checked && S.signature) msg=(msg?msg+'\n\n':'')+S.signature;
+      const inc=document.getElementById('plink-inc').checked, notes=document.getElementById('plink-notes').checked;
+      if(!msg.trim() && !inc){ msgEl.innerHTML='<span class="text-rose-600 font-semibold">Write a message or include the record details.</span>'; return; }
+      const esc=v=>this.esc(v);
+      const html='<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1c2733">'+esc(msg).replace(/\r?\n/g,'<br>')+'</div>'+(inc?((msg.trim()?'<hr style="border:0;border-top:1px solid #dbe3ee;margin:14px 0">':'')+this.recordHTML(r, notes)):'');
+      const text=[msg, inc?this.recordText(r, notes):''].filter(x=>x.trim()).join('\n\n');
+      const btn=document.getElementById('plink-send'); btn.disabled=true; msgEl.innerHTML='Sending…';
+      const results=[];
+      for(const rcp of to){
+        const p={to_email:rcp.email,email:rcp.email,to:rcp.email,to_name:rcp.name||'',subject,message:text,message_html:html,html_display:'block',text_display:'none',from_name:S.myName||'',reply_to:S.myEmail||'',lock_display:'none',unlock_display:'none'};
+        try{
+          const res=await fetch('https://api.emailjs.com/api/v1.0/email/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service_id:ej.service,template_id:ej.template,user_id:ej.key,template_params:p})});
+          const t=await res.text(); if(!res.ok) throw new Error('EmailJS '+res.status+': '+(t||res.statusText));
+          results.push({ok:true, rcp});
+        }catch(err){ results.push({ok:false, rcp, err:err.message}); }
+        await new Promise(ok=>setTimeout(ok, 1100)); // EmailJS allows about 1 email per second
+      }
+      const okN=results.filter(x=>x.ok).length, fails=results.filter(x=>!x.ok);
+      try{ App.transport.log('update', null, r.title, `Emailed record to ${results.filter(x=>x.ok).map(x=>x.rcp.email).join(', ')||'nobody'}${fails.length?' — failed: '+fails.map(x=>x.rcp.email).join(', '):''}`); }catch(e){}
+      btn.disabled=false;
+      if(!fails.length){ document.getElementById('plink-email').remove(); App.ui.toast(`Email sent to ${okN} recipient(s).`); }
+      else msgEl.innerHTML=`<span class="text-rose-600 font-semibold">${okN} sent, ${fails.length} failed: ${fails.map(x=>this.esc(x.rcp.email+' — '+x.err)).join('<br>')}</span>`;
+    }
+  },
+
   // ------------------------------------------------------------------
   // App.aiDedupe - stops AI Import from adding things you already have.
   // When an extracted doctor, medication, condition, allergy, vital

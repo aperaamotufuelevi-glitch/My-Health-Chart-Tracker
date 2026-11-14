@@ -460,7 +460,7 @@ tailwind.config = {
             <section>
               <h4 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-50 dark:border-slate-700 pb-2">Physical Specs</h4>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label class="block text-xs font-semibold mb-1">Height (e.g. 5'10", 175cm, 1.75m)</label><input type="text" id="heightRaw" placeholder="5'10&quot;" class="form-input"><p class="text-[10px] text-slate-400 mt-1">Converts automatically to cm</p></div>
+                <div><div class="flex gap-2"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Height (e.g. 5'10", 175cm, 1.75m)</label><input type="text" id="heightRaw" placeholder="5'10&quot;" class="form-input" oninput="App.vitalStatus.heightPreview()"></div><div class="w-32"><label class="block text-xs font-semibold mb-1">Unit</label><select id="heightUnit" class="form-input" onchange="App.vitalStatus.heightPreview()"><option value="">Auto (ft' in")</option><option value="in">Inches</option><option value="cm">Centimeters</option></select></div></div><p id="height-check" class="text-[10px] text-slate-400 mt-1">Converts automatically to cm</p></div>
                 <div class="flex gap-2"><div class="flex-1"><label class="block text-xs font-semibold mb-1">Weight</label><input type="number" id="weightRaw" step="0.1" class="form-input"></div><div class="w-24"><label class="block text-xs font-semibold mb-1">Unit</label><select id="weightUnit" class="form-input"><option value="lbs">lbs</option><option value="kg">kg</option></select></div></div>
               </div>
             </section>
@@ -1357,6 +1357,8 @@ const App = {
       return { avg: sum/nums.length, min: Math.min(...nums), max: Math.max(...nums), count: nums.length, nums };
     },
     round1(n){ return Math.round(n*10)/10; },
+    // Missing / "NaN" values become null (a gap in the line), never NaN or 0.
+    cleanInt(v){ const n = App.vitalStatus.num(v); return n===null ? null : parseInt(n); },
     cardShellHTML(prefix, key, canvasAttrs, unitOverride){
       const m = this.cardMeta[key];
       const unit = unitOverride || m.unit;
@@ -1470,9 +1472,10 @@ const App = {
         return;
       }
       this.setCardEmpty(prefix,false);
-      const sysVals = vitalsAsc.map(v=>parseInt(v.systolic));
-      const diaVals = vitalsAsc.map(v=>parseInt(v.diastolic));
+      const sysVals = vitalsAsc.map(v=>this.cleanInt(v.systolic));
+      const diaVals = vitalsAsc.map(v=>this.cleanInt(v.diastolic));
       const sys = this.computeStats(sysVals), dia = this.computeStats(diaVals);
+      if(!sys||!dia) { avgEl.innerText='--/--'; statsEl.innerHTML=''; this.setCardEmpty(prefix,true); if(this.instances[prefix+'-canvas']){ this.instances[prefix+'-canvas'].destroy(); delete this.instances[prefix+'-canvas']; } return; }
       avgEl.innerText = `${this.round1(sys.avg)}/${this.round1(dia.avg)}`;
       statsEl.innerHTML = `<div>Systolic (Avg): <b>${this.round1(sys.avg)}</b></div><div>Diastolic (Avg): <b>${this.round1(dia.avg)}</b></div><div style="margin-top:4px;">Range (SYS/DIA)</div><div>Min: <b>${sys.min}/${dia.min}</b> | Max: <b>${sys.max}/${dia.max}</b></div>`;
       this.buildChart(prefix+'-canvas', labels, [
@@ -1490,8 +1493,9 @@ const App = {
         return;
       }
       this.setCardEmpty(prefix,false);
-      const vals = vitalsAsc.map(v=>parseInt(v.heartRate));
+      const vals = vitalsAsc.map(v=>this.cleanInt(v.heartRate));
       const s = this.computeStats(vals);
+      if(!s) { avgEl.innerText='--'; statsEl.innerHTML=''; this.setCardEmpty(prefix,true); if(this.instances[prefix+'-canvas']){ this.instances[prefix+'-canvas'].destroy(); delete this.instances[prefix+'-canvas']; } return; }
       avgEl.innerText = `${this.round1(s.avg)}`;
       statsEl.innerHTML = `<div>Min: <b>${s.min} bpm</b></div><div>Max: <b>${s.max} bpm</b></div>`;
       this.buildChart(prefix+'-canvas', labels, [
@@ -1508,8 +1512,9 @@ const App = {
         return;
       }
       this.setCardEmpty(prefix,false);
-      const vals = vitalsAsc.map(v=>parseInt(v.spo2));
+      const vals = vitalsAsc.map(v=>this.cleanInt(v.spo2));
       const s = this.computeStats(vals);
+      if(!s) { avgEl.innerText='--%'; statsEl.innerHTML=''; this.setCardEmpty(prefix,true); if(this.instances[prefix+'-canvas']){ this.instances[prefix+'-canvas'].destroy(); delete this.instances[prefix+'-canvas']; } return; }
       const belowCount = s.nums.filter(v=>v<95).length;
       const pctBelow = Math.round((belowCount/s.nums.length)*100);
       avgEl.innerText = `${this.round1(s.avg)}%`;
@@ -2208,6 +2213,7 @@ const App = {
       document.getElementById('display-age-gender').innerText = `${age} years old • ${p.gender||'--'}`;
       document.getElementById('display-blood').innerText = p.bloodType || '--';
       document.getElementById('display-bmi').innerText = p.bmi ? p.bmi.toFixed(1) : '--';
+      try{ App.vitalStatus.heightPreview(); }catch(e){}
       const initials = ((p.firstName[0]||'') + (p.lastName[0]||'')) || 'U';
       document.getElementById('sidebar-initials').innerText = initials;
       document.getElementById('header-initials').innerText = initials;
@@ -2220,16 +2226,10 @@ const App = {
     },
     save(){
       const p = App.state.profile;
-      const fields = ['firstName','middleName','lastName','dob','gender','bloodType','address','city','state','zip','phone','emergencyName','emergencyPhone','emergencyAddress','emergencyEmail','insurance','heightRaw','weightRaw','weightUnit','cardNum'];
+      const fields = ['firstName','middleName','lastName','dob','gender','bloodType','address','city','state','zip','phone','emergencyName','emergencyPhone','emergencyAddress','emergencyEmail','insurance','heightRaw','heightUnit','weightRaw','weightUnit','cardNum'];
       fields.forEach(f=>{ const el = document.getElementById(f); if(el) p[f] = el.value; });
-      let hCm = 0;
-      const hNormalized = (p.heightRaw||'').trim().replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"');
-      const hRaw = hNormalized.toLowerCase();
-      if(hRaw.includes("'")){ const parts = hRaw.split("'"); const feet = parseFloat(parts[0])||0; const inches = parseFloat((parts[1]||'').replace(/["'\s]/g,''))||0; hCm = (feet*30.48)+(inches*2.54); }
-      else if(hRaw.includes('cm')){ hCm = parseFloat(hRaw); }
-      else if(hRaw.includes('m')){ hCm = parseFloat(hRaw) * 100; }
-      else if(hRaw){ hCm = parseFloat(hRaw) * (parseFloat(hRaw) < 3 ? 100 : 1); }
-      p.heightCm = hCm;
+      // Same parsing as before for "Auto"; Inches / Centimeters read a plain number in that unit.
+      p.heightCm = App.vitalStatus.parseHeightCm(p.heightRaw, p.heightUnit||'');
       const wVal = parseFloat(p.weightRaw);
       p.weightKg = p.weightUnit==='lbs' ? wVal*0.453592 : wVal;
       if(p.heightCm > 0 && p.weightKg > 0) p.bmi = p.weightKg / Math.pow(p.heightCm/100, 2);
@@ -2274,13 +2274,13 @@ const App = {
       filtered.forEach(v=>{
         const tr = document.createElement('tr');
         tr.className = 'border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors';
-        let bpColor = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
-        if(v.systolic>=140||v.diastolic>=90) bpColor='bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400';
-        else if(v.systolic>=130||v.diastolic>=80) bpColor='bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
-        tr.innerHTML = `<td class="px-6 py-4"><div class="font-bold">${App.formatDate(v.date)}</div><div class="text-[10px] text-slate-400 uppercase">${v.time}</div></td>
-          <td class="px-6 py-4 text-center"><div class="inline-block px-3 py-1 rounded-full font-bold ${bpColor}">${v.systolic}/${v.diastolic}</div><div class="text-[10px] text-slate-400 mt-1">MAP: ${v.map}</div></td>
-          <td class="px-6 py-4 text-center"><div class="font-bold">${v.heartRate} <span class="text-[10px] text-slate-400 font-normal">BPM</span></div><div class="font-bold text-cyan-500">${v.spo2}% <span class="text-[10px] text-slate-400 font-normal italic">O2</span></div></td>
-          <td class="px-6 py-4 text-center"><div class="font-bold">${v.temp}°F</div><div class="text-[10px] text-slate-400">${v.location}</div></td>
+        const VS = App.vitalStatus;
+        const bpCat = VS.bp(v.systolic, v.diastolic);
+        const bpColor = bpCat.cls;
+        tr.innerHTML = `<td class="px-6 py-4"><div class="font-bold">${App.formatDate(v.date)}</div><div class="text-[10px] text-slate-400 uppercase">${v.time ? v.time : 'Time not listed'}</div></td>
+          <td class="px-6 py-4 text-center"><div class="inline-block px-3 py-1 rounded-full font-bold ${bpColor}">${VS.show(v.systolic)}/${VS.show(v.diastolic)}</div><div class="text-[10px] font-semibold mt-1">${bpCat.label}</div><div class="text-[10px] text-slate-400">MAP: ${VS.has(v.map) ? v.map : '--'}</div></td>
+          <td class="px-6 py-4 text-center"><div class="font-bold">${VS.show(v.heartRate)} <span class="text-[10px] text-slate-400 font-normal">BPM</span></div><div class="font-bold text-cyan-500">${VS.show(v.spo2,'%')} <span class="text-[10px] text-slate-400 font-normal italic">O2</span></div></td>
+          <td class="px-6 py-4 text-center"><div class="font-bold">${VS.show(v.temp,'°F')}</div><div class="text-[10px] text-slate-400">${VS.has(v.temp) ? (v.location || 'Location not listed') : ''}</div></td>
           <td class="px-6 py-4 max-w-xs"><p class="truncate text-slate-500 italic">${v.notes||'—'}</p></td>
           <td class="px-6 py-4 text-right"><button onclick="App.vitals.delete(${v.id})" class="text-slate-300 hover:text-rose-500"><i class="fa-solid fa-trash-can"></i></button></td>`;
         container.appendChild(tr);
@@ -3051,7 +3051,7 @@ Rules:
           reaction: str(it.reaction)
         }));
         addItems('vitals', parsed.vitals, it=>({
-          date: str(it.date) || record.docDate, time: str(it.time) || record.docTime || '12:00',
+          date: str(it.date) || record.docDate, time: str(it.time) || record.docTime || '',
           systolic: str(it.systolic), diastolic: str(it.diastolic), heartRate: str(it.heartRate),
           spo2: str(it.spo2), temp: str(it.temp),
           notes: [str(it.notes), str(it.weight)?('Weight: '+str(it.weight)):'', 'From: '+record.title].filter(Boolean).join(' • ')
@@ -3083,6 +3083,9 @@ Rules:
       if(cat==='vitals'){
         const need = ['date','systolic','diastolic','heartRate','spo2'].filter(f=>!String(item[f]||'').trim());
         if(need.length) return 'This reading needs Date, Systolic, Diastolic, Pulse and SpO2 to go into your Vitals log (it is already kept in the document record).';
+        const notNum = ['systolic','diastolic','heartRate','spo2'].filter(f=>App.vitalStatus.num(item[f])===null);
+        if(String(item.temp||'').trim() && App.vitalStatus.num(item.temp)===null) notNum.push('temp');
+        if(notNum.length) return 'Systolic, Diastolic, Pulse, SpO2 (and Temp, if filled in) must be numbers only — fix or clear: '+notNum.join(', ')+'.';
       }
       return '';
     },
@@ -3173,9 +3176,17 @@ Rules:
     },
     _commitVital(it){
       const sys = parseInt(it.systolic), dia = parseInt(it.diastolic);
-      const entry = { date: it.date, time: /^\d{1,2}:\d{2}$/.test(it.time||'') ? it.time.padStart(5,'0') : '12:00', systolic: String(sys), diastolic: String(dia), heartRate: String(parseInt(it.heartRate)), spo2: String(parseInt(it.spo2)), temp: it.temp||'', location:'Oral', notes: it.notes||'' };
-      entry.pulsePressure = sys - dia;
-      entry.map = Math.round(dia + (1/3*entry.pulsePressure));
+      // Only what the document actually says is saved: a missing number is
+      // left blank (never "NaN"), and a missing time or temperature
+      // location is left blank (shown as "not listed") instead of guessed.
+      const VS = App.vitalStatus;
+      const keep = v => { const n = VS.num(v); return n===null ? '' : String(Math.round(n)); };
+      const tNum = VS.num(it.temp);
+      const entry = { date: it.date, time: /^\d{1,2}:\d{2}$/.test(it.time||'') ? it.time.padStart(5,'0') : '', systolic: keep(sys), diastolic: keep(dia), heartRate: keep(it.heartRate), spo2: keep(it.spo2), temp: tNum===null ? '' : String(tNum), location:'', notes: it.notes||'' };
+      if(!isNaN(sys) && !isNaN(dia)){
+        entry.pulsePressure = sys - dia;
+        entry.map = Math.round(dia + (1/3*entry.pulsePressure));
+      } else { entry.pulsePressure = ''; entry.map = ''; }
       entry.id = Date.now()+Math.floor(Math.random()*1000);
       App.state.vitals.unshift(entry);
       App.state.vitals.sort((a,b)=> new Date(b.date+' '+b.time) - new Date(a.date+' '+a.time));
@@ -3572,12 +3583,12 @@ Rules:
       const last = App.state.vitals[0];
       if(last){
         document.getElementById('dash-bp').innerText = `${last.systolic}/${last.diastolic}`;
-        document.getElementById('dash-spo2').innerText = `${last.spo2}%`;
-        document.getElementById('dash-temp').innerText = `${last.temp}°F`;
-        const bpStatus = last.systolic>=140||last.diastolic>=90 ? 'High' : (last.systolic>=130||last.diastolic>=80 ? 'Elevated' : 'Normal');
-        document.getElementById('dash-bp-status').innerText = bpStatus;
-        document.getElementById('dash-spo2-status').innerText = this.getSpo2Status(last.spo2);
-        document.getElementById('dash-temp-status').innerText = this.getTempStatus(last.temp);
+        const VS = App.vitalStatus;
+        document.getElementById('dash-spo2').innerText = VS.has(last.spo2) ? `${last.spo2}%` : '--%';
+        document.getElementById('dash-temp').innerText = VS.has(last.temp) ? `${last.temp}°F` : '--°F';
+        document.getElementById('dash-bp-status').innerText = VS.bp(last.systolic, last.diastolic).label;
+        document.getElementById('dash-spo2-status').innerText = VS.spo2(last.spo2);
+        document.getElementById('dash-temp-status').innerText = VS.temp(last.temp);
         document.getElementById('stat-last-bp').innerText = `${App.formatDate(last.date)} @ ${last.time}`;
       }
       document.getElementById('dash-bmi').innerText = App.state.profile.bmi ? App.state.profile.bmi.toFixed(1) : '--';
@@ -3641,8 +3652,6 @@ Rules:
       App.charts.renderVitalCards('dvc', App.state.vitals.slice(0,8).reverse());
       App.records.renderDashboardCard();
     },
-    getSpo2Status(v){ const n=parseFloat(v); if(v===''||v==null||isNaN(n)) return 'No data'; if(n>=95) return 'Normal'; if(n>=90) return 'Low'; return 'Very Low'; },
-    getTempStatus(v){ const n=parseFloat(v); if(v===''||v==null||isNaN(n)) return 'No data'; if(n>=100.4) return 'Fever'; if(n>=99.5) return 'Elevated'; if(n<95) return 'Low'; return 'Normal'; },
     getBmiCategory(bmi){ if(!bmi) return 'No data'; if(bmi<18.5) return 'Underweight'; if(bmi<25) return 'Normal'; if(bmi<30) return 'Overweight'; return 'Obese'; }
   },
 
@@ -3685,6 +3694,81 @@ Rules:
        over the per-metric Trend/Status results (combineOverallTrend)
        - never by averaging raw numbers across different vital signs.
      ============================================================ */
+  // ------------------------------------------------------------------
+  // App.vitalStatus - one shared place for reading-level labels, so the
+  // Dashboard, Daily Vitals log and Analytics always agree.
+  // Blood pressure: 2025 AHA/ACC guideline categories (unchanged from 2017):
+  //   Normal <120 and <80 | Elevated 120-129 and <80 |
+  //   Stage 1 130-139 or 80-89 | Stage 2 >=140 or >=90 |
+  //   Severe >180 and/or >120.
+  // SpO2 / Temperature use the app's own reference ranges in
+  // App.trendEngine.config.healthReferenceRanges (single source of truth).
+  // ------------------------------------------------------------------
+  vitalStatus: {
+    // A value counts only if it is a real number. Blank, null, and the
+    // text "NaN" saved by older AI Import versions are treated as missing.
+    num(v){ if(v===undefined||v===null) return null; const s=String(v).trim(); if(s===''||s.toLowerCase()==='nan') return null; const n=parseFloat(s); return isNaN(n)?null:n; },
+    has(v){ return this.num(v)!==null; },
+    show(v, suffix){ const n=this.num(v); return n===null ? '--' : (String(v).trim()+(suffix||'')); },
+    bp(sys, dia){
+      const s=this.num(sys), d=this.num(dia);
+      if(s===null||d===null) return { key:'none', label:'No data', cls:'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' };
+      if(s>180||d>120) return { key:'severe', label:'Severe (over 180/120)', cls:'bg-red-600 text-white' };
+      if(s>=140||d>=90) return { key:'stage2', label:'Stage 2 Hypertension', cls:'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' };
+      if(s>=130||d>=80) return { key:'stage1', label:'Stage 1 Hypertension', cls:'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' };
+      if(s>=120) return { key:'elevated', label:'Elevated', cls:'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' };
+      return { key:'normal', label:'Normal', cls:'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' };
+    },
+    spo2(v){
+      const n=this.num(v); if(n===null) return 'No data';
+      const r=App.trendEngine.config.healthReferenceRanges.spo2;
+      if(n>=r.lower) return 'Normal';
+      if(n>=90) return 'Low';
+      return 'Very Low';
+    },
+    temp(v){
+      const n=this.num(v); if(n===null) return 'No data';
+      const r=App.trendEngine.config.healthReferenceRanges.temperature;
+      if(n>=100.4) return 'Fever';
+      if(n>r.upper) return 'Elevated';
+      if(n<r.lower) return 'Below normal';
+      return 'Normal';
+    },
+    // Average of only the readings that actually have a value.
+    avg(list, field){
+      const vals=list.map(v=>this.num(v[field])).filter(n=>n!==null);
+      return { avg: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null, count: vals.length, total: list.length };
+    },
+    // Height -> cm. unit '' (Auto) keeps the original parsing rules exactly;
+    // 'in' and 'cm' read a plain number in that unit.
+    parseHeightCm(raw, unit){
+      if(unit==='in'){ const n=parseFloat(String(raw||'').replace(/[^0-9.]/g,'')); return isNaN(n)?0:n*2.54; }
+      if(unit==='cm'){ const n=parseFloat(String(raw||'').replace(/[^0-9.]/g,'')); return isNaN(n)?0:n; }
+      let hCm = 0;
+      const hNormalized = (raw||'').trim().replace(/[‘’]/g,"'").replace(/[“”]/g,'"');
+      const hRaw = hNormalized.toLowerCase();
+      if(hRaw.includes("'")){ const parts = hRaw.split("'"); const feet = parseFloat(parts[0])||0; const inches = parseFloat((parts[1]||'').replace(/["'\s]/g,''))||0; hCm = (feet*30.48)+(inches*2.54); }
+      else if(hRaw.includes('cm')){ hCm = parseFloat(hRaw); }
+      else if(hRaw.includes('m')){ hCm = parseFloat(hRaw) * 100; }
+      else if(hRaw){ hCm = parseFloat(hRaw) * (parseFloat(hRaw) < 3 ? 100 : 1); }
+      return hCm;
+    },
+    // Live "reads as" line under the Height field so a wrong unit is
+    // visible before saving.
+    heightPreview(){
+      const el=document.getElementById('height-check'); if(!el) return;
+      const raw=(document.getElementById('heightRaw')||{}).value||'';
+      const unit=(document.getElementById('heightUnit')||{}).value||'';
+      if(!raw.trim()){ el.innerText='Converts automatically to cm'; el.className='text-[10px] text-slate-400 mt-1'; return; }
+      const cm=this.parseHeightCm(raw, unit);
+      if(!cm||isNaN(cm)){ el.innerText='Could not read this height — check the number and unit.'; el.className='text-[10px] text-rose-500 mt-1 font-semibold'; return; }
+      const totalIn=cm/2.54, ft=Math.floor(totalIn/12), inch=Math.round((totalIn-ft*12)*10)/10;
+      const odd = cm<120||cm>230;
+      el.innerText=`Reads as ${ft} ft ${inch} in (${Math.round(cm*10)/10} cm)`+(odd?' — this looks wrong for an adult, check the unit.':'');
+      el.className='text-[10px] mt-1 '+(odd?'text-rose-500 font-semibold':'text-slate-500');
+    }
+  },
+
   trendEngine: {
     config: {
       // The single place clinical reference ranges live. Edit these to
@@ -4062,16 +4146,20 @@ Rules:
       const note = document.getElementById('analytics-vc-note');
       if(note) note.innerText = filtered.length > App.charts.maxLabeledPoints ? `Showing ${filtered.length} readings — point labels are hidden past ${App.charts.maxLabeledPoints} to avoid clutter. Hover (or tap) any point on the line for its exact value.` : '';
       if(filtered.length===0) return;
-      const avgSys = Math.round(filtered.reduce((a,v)=>a+parseInt(v.systolic),0)/filtered.length);
-      const avgDia = Math.round(filtered.reduce((a,v)=>a+parseInt(v.diastolic),0)/filtered.length);
-      const avgHR = Math.round(filtered.reduce((a,v)=>a+parseInt(v.heartRate),0)/filtered.length);
-      const avgSpO2 = Math.round(filtered.reduce((a,v)=>a+parseInt(v.spo2),0)/filtered.length);
-      const tempsAll = filtered.map(v=>parseFloat(v.temp)).filter(t=>!isNaN(t));
-      document.getElementById('stats-avg-bp').innerText = `${avgSys}/${avgDia}`;
-      document.getElementById('stats-avg-hr').innerText = `${avgHR} bpm`;
-      document.getElementById('stats-avg-spo2').innerText = `${avgSpO2}%`;
-      const avgTempEl = document.getElementById('stats-avg-temp');
-      if(avgTempEl) avgTempEl.innerText = tempsAll.length ? `${(tempsAll.reduce((a,b)=>a+b,0)/tempsAll.length).toFixed(1)}°F` : '--°F';
+      // Each average uses only readings that actually have that value
+      // (blank / "NaN" entries are skipped, never counted as 0), and says
+      // how many readings it is based on.
+      const VS = App.vitalStatus;
+      const aSys = VS.avg(filtered,'systolic'), aDia = VS.avg(filtered,'diastolic'), aHR = VS.avg(filtered,'heartRate'), aO2 = VS.avg(filtered,'spo2'), aT = VS.avg(filtered,'temp');
+      const basis = a => a.count===a.total ? '' : ` (${a.count} of ${a.total})`;
+      const setAvg = (id, text, a) => { const el=document.getElementById(id); if(!el) return; el.innerText = text; if(a.count!==a.total){ const s=document.createElement('span'); s.className='text-xs font-normal text-primary-200'; s.innerText=basis(a); el.appendChild(s); } };
+      setAvg('stats-avg-bp', (aSys.avg===null||aDia.avg===null) ? '--/--' : `${Math.round(aSys.avg)}/${Math.round(aDia.avg)}`, aSys.count<aDia.count?aSys:aDia);
+      setAvg('stats-avg-hr', aHR.avg===null ? '-- bpm' : `${Math.round(aHR.avg)} bpm`, aHR);
+      setAvg('stats-avg-spo2', aO2.avg===null ? '--%' : `${Math.round(aO2.avg)}%`, aO2);
+      setAvg('stats-avg-temp', aT.avg===null ? '--°F' : `${aT.avg.toFixed(1)}°F`, aT);
+      const bpCat = (aSys.avg===null||aDia.avg===null) ? null : VS.bp(Math.round(aSys.avg), Math.round(aDia.avg));
+      const bpAvgEl = document.getElementById('stats-avg-bp');
+      if(bpAvgEl && bpCat){ const c=document.createElement('div'); c.className='text-xs font-semibold text-primary-100 mt-0.5'; c.innerText='Average is in: '+bpCat.label; bpAvgEl.appendChild(c); }
 
       // Deterministic, metric-aware, reference-range-aware trend
       // calculation - see App.trendEngine above. Replaces the old

@@ -1089,7 +1089,7 @@ tailwind.config = {
           </div>
           <div class="tr-section-title">Return Trip</div>
           <div class="tr-grid-3">
-            <div class="tr-field"><label class="tr-auto-calc-label">Return Pick-Up Time (Auto +10 min after end)</label><input type="time" id="rf-retTime" class="tr-auto-calc" readonly></div>
+            <div class="tr-field"><label class="tr-auto-calc-label">Return Pick-Up Time Window (Auto: 10 to 30 min after end)</label><div style="display:flex;align-items:center;gap:6px;"><input type="time" id="rf-retTime" class="tr-auto-calc" readonly style="flex:1;min-width:0;"><span style="font-weight:600;">to</span><input type="time" id="rf-retTimeEnd" class="tr-auto-calc" readonly style="flex:1;min-width:0;"></div></div>
             <div class="tr-field" style="position:relative;"><label class="tr-auto-calc-label">Return Pick-Up Address</label><input type="text" id="rf-retPuAddr" class="tr-auto-calc" readonly><div id="retPuAddrSuggestions" class="tr-addr-suggestions hidden"></div></div>
             <div class="tr-field" style="position:relative;"><label class="tr-auto-calc-label">Return Drop-Off Address</label><input type="text" id="rf-retDoAddr" class="tr-auto-calc" readonly><div id="retDoAddrSuggestions" class="tr-addr-suggestions hidden"></div></div>
           </div>
@@ -1310,6 +1310,9 @@ const App = {
   },
   formatDateShort(dateStr){ if(!dateStr) return '--'; const d = new Date(dateStr+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); },
   formatLogTime(iso){ const d = new Date(iso); return d.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'}); },
+  // Return Pick-Up Time Window: starts at the saved return time (10 min after the appointment ends) and runs 20 minutes, e.g. 3:40 PM to 4:00 PM.
+  retWindowEndTime(t){ if(!t||!/^\d{1,2}:\d{2}/.test(t)) return ''; const [h,m]=t.split(':').map(Number); const tot=(h*60+m+20)%1440; return String(Math.floor(tot/60)).padStart(2,'0')+':'+String(tot%60).padStart(2,'0'); },
+  formatRetWindow(t){ if(!t) return '-'; const e=this.retWindowEndTime(t); return e ? this.formatTime(t)+' to '+this.formatTime(e) : this.formatTime(t); },
   formatTime(t){ if(!t) return '-'; const [h,m] = t.split(':'); const hour = parseInt(h); const ampm = hour>=12?'PM':'AM'; const displayHour = hour%12||12; return displayHour+':'+m+' '+ampm; },
   // Renders a confirmed pickup window as "8:00 AM to 8:30 AM" (matching how
   // Hopelink's MyRideOnline displays it). Returns null when no window has
@@ -5098,9 +5101,10 @@ Rules:
         const endTime = this.addMinutesToTime(start, totalMins);
         document.getElementById('rf-apptEnd').value = endTime;
         document.getElementById('rf-retTime').value = this.addMinutesToTime(endTime,10);
+        document.getElementById('rf-retTimeEnd').value = App.retWindowEndTime(document.getElementById('rf-retTime').value);
       }
     },
-    clearDuration(){ document.getElementById('rf-durHours').value=''; document.getElementById('rf-durMinutes').value=''; document.getElementById('rf-apptEnd').value=''; document.getElementById('rf-retTime').value=''; },
+    clearDuration(){ document.getElementById('rf-durHours').value=''; document.getElementById('rf-durMinutes').value=''; document.getElementById('rf-apptEnd').value=''; document.getElementById('rf-retTime').value=''; document.getElementById('rf-retTimeEnd').value=''; },
     durationMinutes(start,end){
       if(!start||!end) return '';
       const [sh,sm]=start.split(':').map(Number), [eh,em]=end.split(':').map(Number);
@@ -5170,8 +5174,8 @@ Rules:
           <div style="font-size:15px;font-weight:600;">${r.provider||'N/A'} ${r.providerPhone?'<span style="font-weight:400;color:#64748b;">- '+r.providerPhone+'</span>':''}</div></div>
         <div class="tr-detail-grid-header"><div>Pick-Up Window</div><div>Pick-Up Location / Address</div><div>Drop-Off Location / Address</div></div>
         <div class="tr-detail-grid-body"><div><strong>${App.formatWindow(r.puWindowStart,r.puWindowEnd) || App.formatTime(r.puTime)}</strong></div><div>${puAddrDisplay}</div><div>${r.doAddr||'N/A'}</div></div>
-        <div class="tr-detail-grid-header"><div>Return Pick-Up Time</div><div>Return Pick-Up Location / Address</div><div>Drop-Off Location / Address</div></div>
-        <div class="tr-detail-grid-body"><div><strong>${App.formatTime(r.retTime)}</strong></div><div>${r.retPuAddr||'N/A'}</div><div>${retDoAddrDisplay}</div></div>
+        <div class="tr-detail-grid-header"><div>Return Pick-Up Time Window</div><div>Return Pick-Up Location / Address</div><div>Drop-Off Location / Address</div></div>
+        <div class="tr-detail-grid-body"><div><strong>${App.formatRetWindow(r.retTime)}</strong></div><div>${r.retPuAddr||'N/A'}</div><div>${retDoAddrDisplay}</div></div>
         <div style="margin-bottom:12px;"><div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Medical Appointment Information</div>
           <div style="font-size:14px;background:#f8fafc;padding:12px 14px;border-radius:6px;border:1px solid #e2e8f0;line-height:1.6;"><strong>IT READS:</strong> ${r.notes||'N/A'}</div></div>
         ${r.status==='pending'?'<div class="tr-highlight-red"><strong>Warning: This ride request has not yet been scheduled.</strong> Need to request a ride with Hopelink Transportation.</div>':''}
@@ -5254,7 +5258,7 @@ Rules:
       document.getElementById('rf-status').value = r.status; document.getElementById('rf-puTime').value = r.puTime||'';
       document.getElementById('rf-puWindowStart').value = r.puWindowStart||''; document.getElementById('rf-puWindowEnd').value = r.puWindowEnd||'';
       document.getElementById('rf-doAddr').value = r.doAddr||'';
-      document.getElementById('rf-retTime').value = r.retTime||''; document.getElementById('rf-retPuAddr').value = r.retPuAddr||'';
+      document.getElementById('rf-retTime').value = r.retTime||''; document.getElementById('rf-retTimeEnd').value = App.retWindowEndTime(r.retTime||''); document.getElementById('rf-retPuAddr').value = r.retPuAddr||'';
       document.getElementById('rf-notes').value = r.notes||'';
       // Pick-Up Address and the return trip's Drop-Off Address are always
       // refreshed from the CURRENT profile, not the ride's saved value -
@@ -6622,8 +6626,8 @@ Rules:
           <p style="font-size:12px;margin:0 0 12px 0;"><b>Provider:</b> ${r.provider||'N/A'} ${r.providerPhone?'– '+r.providerPhone:''}</p>
           <div style="background:#1e3a5f;color:#ffd700;padding:8px 10px;font-weight:700;font-size:11px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;border-radius:6px 6px 0 0;"><div>Pick-Up Window</div><div>Pick-Up Address</div><div>Drop-Off Address</div></div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:10px;background:#f1f5f9;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;margin-bottom:14px;font-size:11px;"><div><b>${App.formatWindow(r.puWindowStart,r.puWindowEnd) || App.formatTime(r.puTime)}</b></div><div>${puAddrDisplay}</div><div>${r.doAddr||'N/A'}</div></div>
-          <div style="background:#1e3a5f;color:#ffd700;padding:8px 10px;font-weight:700;font-size:11px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;border-radius:6px 6px 0 0;"><div>Return Pick-Up Time</div><div>Return Pick-Up Address</div><div>Drop-Off Address</div></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:10px;background:#f1f5f9;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;margin-bottom:14px;font-size:11px;"><div><b>${App.formatTime(r.retTime)}</b></div><div>${r.retPuAddr||'N/A'}</div><div>${retDoAddrDisplay}</div></div>
+          <div style="background:#1e3a5f;color:#ffd700;padding:8px 10px;font-weight:700;font-size:11px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;border-radius:6px 6px 0 0;"><div>Return Pick-Up Time Window</div><div>Return Pick-Up Address</div><div>Drop-Off Address</div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:10px;background:#f1f5f9;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 6px 6px;margin-bottom:14px;font-size:11px;"><div><b>${App.formatRetWindow(r.retTime)}</b></div><div>${r.retPuAddr||'N/A'}</div><div>${retDoAddrDisplay}</div></div>
           <p style="font-size:11px;background:#f8fafc;padding:10px;border-radius:6px;border:1px solid #e2e8f0;"><b>Notes:</b> ${r.notes||'N/A'}</p>
           <p style="font-size:9px;color:#94a3b8;text-align:center;margin-top:16px;text-transform:uppercase;letter-spacing:.15em;">Printed ${new Date().toLocaleString()}</p>
         </div></div>`;

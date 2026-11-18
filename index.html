@@ -6798,6 +6798,13 @@ window.onload = () => App.init();
 #mobile-more-drawer{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important}
 #more-drawer-content{transform:none!important;transition:none!important;box-shadow:0 -10px 30px rgba(15,23,42,.25);border-top:1px solid #e2e8f0}
 .dark #more-drawer-content{border-top-color:#334155}
+/* No blur anywhere in this tool, on phone or laptop (added Nov 18, 2026, owner's request) */
+*,*::before,*::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+header.sticky{background-color:#fff!important}
+.dark header.sticky{background-color:#1e293b!important}
+#modal-overlay{background:transparent!important}
+#modal-overlay>*{box-shadow:0 10px 40px rgba(15,23,42,.35)!important;border:1px solid #e2e8f0}
+.dark #modal-overlay>*{border-color:#334155}
 </style>
 <script>
 /* Stuck-blur guard (added Nov 18, 2026). Separate from everything else in this tool.

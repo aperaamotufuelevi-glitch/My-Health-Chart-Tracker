@@ -6792,6 +6792,13 @@ Rules:
 
 window.onload = () => App.init();
 </script>
+<style>
+/* More menu without blur (added Nov 18, 2026, owner's request): tapping More shows the menu
+   straight away — no blur, no gray cover, no slide-in that could get stuck off the screen. */
+#mobile-more-drawer{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;background:transparent!important}
+#more-drawer-content{transform:none!important;transition:none!important;box-shadow:0 -10px 30px rgba(15,23,42,.25);border-top:1px solid #e2e8f0}
+.dark #more-drawer-content{border-top-color:#334155}
+</style>
 <script>
 /* Stuck-blur guard (added Nov 18, 2026). Separate from everything else in this tool.
    The More menu and the pop-up windows darken and blur the page behind them. If that blur ever

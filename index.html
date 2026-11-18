@@ -6792,5 +6792,30 @@ Rules:
 
 window.onload = () => App.init();
 </script>
+<script>
+/* Stuck-blur guard (added Nov 18, 2026). Separate from everything else in this tool.
+   The More menu and the pop-up windows darken and blur the page behind them. If that blur ever
+   shows with nothing on it (for example after a slow or dropped internet connection), the page
+   was stuck and could not be used. This guard:
+   - closes the More menu when you tap the blurred area outside it;
+   - closes the blur by itself if it has been showing for over a second with nothing visible on it.
+   It never closes a pop-up window that is showing on the screen, so nothing you are typing is lost. */
+(function(){
+  'use strict';
+  function shown(el){ return !!el && getComputedStyle(el).display!=='none'; }
+  function onScreen(el){ if(!el) return false; var r=el.getBoundingClientRect(); return r.height>8 && r.width>8 && r.bottom>24 && r.top<innerHeight-24 && r.right>0 && r.left<innerWidth && getComputedStyle(el).display!=='none' && getComputedStyle(el).visibility!=='hidden'; }
+  function closeDrawer(){ var d=document.getElementById('mobile-more-drawer'), c=document.getElementById('more-drawer-content');
+    if(c) c.style.transform='translateY(100%)'; if(d){ d.classList.add('hidden'); d.classList.remove('flex'); } }
+  document.addEventListener('click',function(ev){ var d=document.getElementById('mobile-more-drawer');
+    if(d && ev.target===d && shown(d)) closeDrawer(); });
+  var stuck={drawer:0,overlay:0};
+  setInterval(function(){
+    var d=document.getElementById('mobile-more-drawer');
+    if(shown(d) && !onScreen(document.getElementById('more-drawer-content'))){ if(++stuck.drawer>=3){ closeDrawer(); stuck.drawer=0; } } else stuck.drawer=0;
+    var o=document.getElementById('modal-overlay');
+    if(shown(o) && ![].some.call(o.children,onScreen)){ if(++stuck.overlay>=3){ try{ App.ui.closeModal(); }catch(e){ o.classList.add('hidden'); o.classList.remove('flex'); } stuck.overlay=0; } } else stuck.overlay=0;
+  },500);
+})();
+</script>
 </body>
 </html>
